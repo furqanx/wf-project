@@ -1,0 +1,32 @@
+# Environment
+env/
+.env
+*.env
+
+# Data files (jangan diupload ke GitHub)
+dashboards
+dashboards/docker-compose.yml
+data/
+temp/
+sql/
+src/delivery_order_loader.py
+src/distribution_target_loader.py
+src/product_price_loader.py
+src/production_loader.py
+src/production_target_loader.py
+src/raw_material_loader.py
+src/stock_out_loader.py
+src/load_geography.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup
+*.sql
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
