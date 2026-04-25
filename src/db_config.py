@@ -1,26 +1,29 @@
+import os
 from sqlalchemy import create_engine
 import logging
 
-# Konfigurasi Logging agar kita bisa melihat proses di terminal
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Konfigurasi Database PostgreSQL Anda
-DB_USER     = 'postgres'
-DB_PASSWORD = 'password'
-DB_HOST     = 'localhost'
-DB_PORT     = '5432'
-DB_NAME     = 'wellfarm'
 
 def get_engine():
-    """Membuat dan mengembalikan koneksi engine SQLAlchemy."""
+    user     = os.getenv('DB_USER',     'postgres')
+    password = os.getenv('DB_PASSWORD', 'password')
+    host     = os.getenv('DB_HOST',     'localhost')
+    port     = os.getenv('DB_PORT',     '5432')
+    dbname   = os.getenv('DB_NAME',     'wellfarm')
+    sslmode  = os.getenv('DB_SSLMODE',  'prefer')
+
     try:
         engine = create_engine(
-            f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}',
-            connect_args={"options": "-csearch_path=staging,public"}
+            f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}',
+            connect_args={
+                'options':  '-csearch_path=staging,public',
+                'sslmode':  sslmode,
+            }
         )
-        logger.info("Berhasil membuat engine koneksi ke PostgreSQL.")
+        logger.info('Berhasil membuat engine koneksi ke PostgreSQL.')
         return engine
     except Exception as e:
-        logger.error(f"Gagal koneksi ke database: {e}")
+        logger.error(f'Gagal koneksi ke database: {e}')
         raise

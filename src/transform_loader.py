@@ -907,6 +907,11 @@ def transform_fact_balance_transaction(engine, marketplace):
                 logger.info(f"✅ fact_balance_transaction TikTok: {r1.rowcount + r2.rowcount} baris")
 
             elif marketplace == 'shopee':
+                # Hapus semua data Shopee lama lalu insert ulang
+                conn.execute(text("""
+                    DELETE FROM fact_balance_transaction WHERE source_marketplace = 'shopee'
+                """))
+
                 sql = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
@@ -914,8 +919,8 @@ def transform_fact_balance_transaction(engine, marketplace):
                         source_marketplace, source_filename, transaction_date_id
                     )
                     SELECT
-                        cm.sales_channel_id,
-                        TRIM(r.tanggal_transaksi)::DATE,
+                        sc.sales_channel_id,
+                        TRIM(r.tanggal_transaksi)::TIMESTAMP::DATE,
                         TRIM(r.tipe_transaksi),
                         NULL,
                         CASE TRIM(r.tipe_transaksi)
@@ -930,14 +935,15 @@ def transform_fact_balance_transaction(engine, marketplace):
                         NULLIF(TRIM(r.deskripsi), 'nan'),
                         'shopee',
                         r.source_filename,
-                        CAST(TO_CHAR(TRIM(r.tanggal_transaksi)::DATE, 'YYYYMMDD') AS INT)
-                    FROM stg_shopee_report r
-                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko
-                    WHERE cm.sales_channel_id IS NOT NULL
+                        CAST(TO_CHAR(TRIM(r.tanggal_transaksi)::TIMESTAMP::DATE, 'YYYYMMDD') AS INT)
+                    FROM staging.stg_shopee_report r
+                    JOIN public.dim_store st
+                        ON LOWER(TRIM(st.nama_toko)) = LOWER(TRIM(r.nama_toko))
+                    JOIN public.dim_sales_channel sc
+                        ON sc.store_id = st.store_id
+                        AND sc.marketplace_id = (SELECT marketplace_id FROM public.dim_marketplace WHERE LOWER(nama_marketplace) = 'shopee' LIMIT 1)
+                    WHERE NULLIF(TRIM(r.jumlah), 'nan') IS NOT NULL
                       AND TRIM(r.tanggal_transaksi) ~ '^\\d{4}-\\d{2}-\\d{2}'
-                    ON CONFLICT (sales_channel_id, transaction_date, type, amount, source_filename)
-                        WHERE payout_batch_id IS NULL
-                    DO NOTHING
                 """)
                 result = conn.execute(sql)
                 logger.info(f"✅ fact_balance_transaction Shopee: {result.rowcount} baris")
@@ -1036,9 +1042,16 @@ def transform_fact_returns_online(engine, marketplace):
                 # Baris dengan product_id diketahui
                 sql_known = text("""
                     INSERT INTO fact_returns_online (
-                        order_id, product_id, sales_channel_id,
-                        cancel_return_reason_id, initiator_id, return_status_id, warehouse_id,
-                        qty_returned, source_marketplace, source_filename
+                        order_id, 
+                        product_id,
+                        sales_channel_id,
+                        cancel_return_reason_id,
+                        initiator_id, 
+                        return_status_id,
+                        warehouse_id,
+                        qty_returned, 
+                        source_marketplace,
+                        source_filename
                     )
                     SELECT
                         o.no_pesanan,
@@ -1079,9 +1092,16 @@ def transform_fact_returns_online(engine, marketplace):
                 # Baris dengan product_id tidak diketahui
                 sql_unknown = text("""
                     INSERT INTO fact_returns_online (
-                        order_id, product_id, sales_channel_id,
-                        cancel_return_reason_id, initiator_id, return_status_id, warehouse_id,
-                        qty_returned, source_marketplace, source_filename
+                        order_id, 
+                        product_id, 
+                        sales_channel_id,
+                        cancel_return_reason_id, 
+                        initiator_id, 
+                        return_status_id, 
+                        warehouse_id,
+                        qty_returned, 
+                        source_marketplace, 
+                        source_filename
                     )
                     SELECT
                         o.no_pesanan,
@@ -1126,10 +1146,18 @@ def transform_fact_returns_online(engine, marketplace):
             elif marketplace == 'tiktok_tokopedia':
                 sql_known = text("""
                     INSERT INTO fact_returns_online (
-                        order_id, product_id, sales_channel_id,
-                        cancel_return_reason_id, initiator_id, return_status_id, warehouse_id,
-                        qty_returned, amt_refunded, return_event_date_id,
-                        source_marketplace, source_filename
+                        order_id, 
+                        product_id, 
+                        sales_channel_id,
+                        cancel_return_reason_id, 
+                        initiator_id, 
+                        return_status_id, 
+                        warehouse_id,
+                        qty_returned, 
+                        amt_refunded, 
+                        return_event_date_id,
+                        source_marketplace, 
+                        source_filename
                     )
                     SELECT
                         o.order_id,
@@ -2960,8 +2988,12 @@ def transform_fact_fulfillment_order_product(engine):
         with engine.begin() as conn:
             sql = text("""
                 INSERT INTO public.fact_fulfillment_order_product (
-                    order_id, sku_code, product_name,
-                    quantity_sold, declared_unit_price, declared_total_product_value,
+                    order_id, 
+                    sku_code,
+                    product_name,
+                    quantity_sold,
+                    declared_unit_price,
+                    declared_total_product_value,
                     source_filename
                 )
                     SELECT DISTINCT ON (s.no_transaksi, s.no_sku)
@@ -2999,7 +3031,11 @@ def transform_fact_fulfillment_packaging_detail(engine):
         with engine.begin() as conn:
             sql = text("""
                 INSERT INTO public.fact_fulfillment_packaging_detail (
-                    order_id, material_name, unit_price, quantity, total_price,
+                    order_id, 
+                    material_name,
+                    unit_price,
+                    quantity,
+                    total_price,
                     source_filename
                 )
                     SELECT DISTINCT ON (s.no_transaksi, s.material_packaging)
