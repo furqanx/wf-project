@@ -5,13 +5,13 @@ import time
 from src.db_config import get_engine, logger
 from src.extract_loader import process_order_file, process_income_file, process_report_file, process_crewdible_file
 from src.transform_loader import run_transform, run_transform_crewdible, load_dim_b2b_partner
-from src.raw_material_loader import load_raw_material_purchase
-from src.production_loader import load_production_data
-from src.stock_out_loader import load_stock_out
-from src.distribution_target_loader import load_distribution_target
-from src.production_target_loader import load_production_target
-from src.product_price_loader import load_product_price
-from src.delivery_order_loader import load_delivery_order
+# from src.raw_material_loader import load_raw_material_purchase
+# from src.production_loader import load_production_data
+# from src.stock_out_loader import load_stock_out
+# from src.distribution_target_loader import load_distribution_target
+# from src.production_target_loader import load_production_target
+# from src.product_price_loader import load_product_price
+# from src.delivery_order_loader import load_delivery_order
 
 def run_crawler(root_dir, target_phase, marketplace, engine):
     """
