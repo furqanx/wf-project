@@ -1062,16 +1062,21 @@ def process_report_file(file_path, marketplace, engine):
 
     try:
         if marketplace == 'tiktok_tokopedia':
-            wb = openpyxl.load_workbook(file_path, data_only=True)
-            ws = wb.active
-            rows = list(ws.values)
-            if not rows:
-                logger.warning(f"⚠️ File kosong: {filename}")
-                return
-
-            cols = [str(c).strip() if c is not None else None for c in rows[0]]
-            df = pd.DataFrame(rows[1:], columns=cols).astype(str)
-            df = df.replace('None', pd.NA)
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(
+                    file_path, dtype=str, header=None,
+                    names=['type', 'reference_id', 'request_time', 'amount', 'status', 'success_time', 'bank_account']
+                ).fillna('')
+            else:
+                wb = openpyxl.load_workbook(file_path, data_only=True)
+                ws = wb.active
+                rows = list(ws.values)
+                if not rows:
+                    logger.warning(f"⚠️ File kosong: {filename}")
+                    return
+                cols = [str(c).strip() if c is not None else None for c in rows[0]]
+                df = pd.DataFrame(rows[1:], columns=cols).astype(str)
+                df = df.replace('None', pd.NA)
 
             df['nama_toko'] = nama_toko
             df['source_filename'] = filename
