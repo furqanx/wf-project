@@ -1085,10 +1085,8 @@ def process_report_file(file_path, marketplace, engine):
     try:
         if marketplace == 'tiktok_tokopedia':
             if file_path.endswith('.csv'):
-                df = pd.read_csv(
-                    file_path, dtype=str, header=None,
-                    names=['type', 'reference_id', 'request_time', 'amount', 'status', 'success_time', 'bank_account']
-                ).fillna('')
+                df = pd.read_csv(file_path, dtype=str).fillna('')
+                df.columns = df.columns.astype(str).str.strip()
             else:
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 ws = wb.active

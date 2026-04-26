@@ -871,7 +871,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                     )
                     SELECT
                         cm.sales_channel_id,
-                        TRIM(r.success_time)::DATE,
+                        TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'),
                         TRIM(r.type),
                         NULL,
                         'outflow',
@@ -880,11 +880,11 @@ def transform_fact_balance_transaction(engine, marketplace):
                         NULL,
                         'tiktok_tokopedia',
                         r.source_filename,
-                        CAST(TO_CHAR(TRIM(r.success_time)::DATE, 'YYYYMMDD') AS INT)
+                        CAST(TO_CHAR(TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'), 'YYYYMMDD') AS INT)
                     FROM stg_tiktok_tokopedia_report r
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
                     WHERE cm.sales_channel_id IS NOT NULL
-                      AND TRIM(r.success_time) ~ '^\\d{4}-\\d{2}-\\d{2}'
+                      AND REPLACE(TRIM(r.success_time), '/', '-') ~ '^\\d{4}-\\d{2}-\\d{2}'
                       AND TRIM(r.type) = 'Withdrawal'
                       AND NULLIF(TRIM(r.reference_id), 'nan') IS NOT NULL
                 """)
@@ -896,7 +896,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                     )
                     SELECT
                         cm.sales_channel_id,
-                        TRIM(r.success_time)::DATE,
+                        TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'),
                         TRIM(r.type),
                         NULL,
                         CASE TRIM(r.type)
@@ -909,11 +909,11 @@ def transform_fact_balance_transaction(engine, marketplace):
                         NULL,
                         'tiktok_tokopedia',
                         r.source_filename,
-                        CAST(TO_CHAR(TRIM(r.success_time)::DATE, 'YYYYMMDD') AS INT)
+                        CAST(TO_CHAR(TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'), 'YYYYMMDD') AS INT)
                     FROM stg_tiktok_tokopedia_report r
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
                     WHERE cm.sales_channel_id IS NOT NULL
-                      AND TRIM(r.success_time) ~ '^\\d{4}-\\d{2}-\\d{2}'
+                      AND REPLACE(TRIM(r.success_time), '/', '-') ~ '^\\d{4}-\\d{2}-\\d{2}'
                       AND TRIM(r.type) != 'Withdrawal'
                 """)
                 r1 = conn.execute(sql_withdrawal)
