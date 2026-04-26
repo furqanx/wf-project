@@ -841,35 +841,34 @@ def transform_fact_balance_transaction(engine, marketplace):
             _load_channel_map(conn, marketplace)
 
             if marketplace == 'tiktok_tokopedia':
-                # Baris Withdrawal (punya payout_batch_id)
+                conn.execute(text(
+                    "DELETE FROM fact_balance_transaction WHERE source_marketplace = 'tiktok_tokopedia'"
+                ))
                 sql_withdrawal = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
                         direction, amount, payout_batch_id, remarks,
                         source_marketplace, source_filename, transaction_date_id
                     )
-                        SELECT
-                            cm.sales_channel_id,
-                            TRIM(r.success_time)::DATE,
-                            TRIM(r.type),
-                            NULL,
-                            'outflow',
-                            ABS(NULLIF(TRIM(r.amount), 'nan')::NUMERIC),
-                            TRIM(r.reference_id),
-                            NULL,
-                            'tiktok_tokopedia',
-                            r.source_filename,
-                            CAST(TO_CHAR(TRIM(r.success_time)::DATE, 'YYYYMMDD') AS INT)
-                        FROM stg_tiktok_tokopedia_report r
-                        LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
-                        WHERE cm.sales_channel_id IS NOT NULL
-                          AND TRIM(r.success_time) ~ '^\\d{4}-\\d{2}-\\d{2}'
-                          AND TRIM(r.type) = 'Withdrawal' AND NULLIF(TRIM(r.reference_id), 'nan') IS NOT NULL
-                    ON CONFLICT (sales_channel_id, payout_batch_id)
-                        WHERE payout_batch_id IS NOT NULL
-                    DO NOTHING
+                    SELECT
+                        cm.sales_channel_id,
+                        TRIM(r.success_time)::DATE,
+                        TRIM(r.type),
+                        NULL,
+                        'outflow',
+                        ABS(NULLIF(TRIM(r.amount), 'nan')::NUMERIC),
+                        TRIM(r.reference_id),
+                        NULL,
+                        'tiktok_tokopedia',
+                        r.source_filename,
+                        CAST(TO_CHAR(TRIM(r.success_time)::DATE, 'YYYYMMDD') AS INT)
+                    FROM stg_tiktok_tokopedia_report r
+                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
+                    WHERE cm.sales_channel_id IS NOT NULL
+                      AND TRIM(r.success_time) ~ '^\\d{4}-\\d{2}-\\d{2}'
+                      AND TRIM(r.type) = 'Withdrawal'
+                      AND NULLIF(TRIM(r.reference_id), 'nan') IS NOT NULL
                 """)
-                # Baris non-Withdrawal
                 sql_non_withdrawal = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
@@ -893,25 +892,19 @@ def transform_fact_balance_transaction(engine, marketplace):
                         r.source_filename,
                         CAST(TO_CHAR(TRIM(r.success_time)::DATE, 'YYYYMMDD') AS INT)
                     FROM stg_tiktok_tokopedia_report r
-                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko
-                        AND cm.purchase_channel = 'tiktok'
+                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND TRIM(r.success_time) ~ '^\\d{4}-\\d{2}-\\d{2}'
                       AND TRIM(r.type) != 'Withdrawal'
-                    ON CONFLICT (sales_channel_id, transaction_date, type, amount, source_filename)
-                        WHERE payout_batch_id IS NULL
-                    DO NOTHING
                 """)
                 r1 = conn.execute(sql_withdrawal)
                 r2 = conn.execute(sql_non_withdrawal)
                 logger.info(f"✅ fact_balance_transaction TikTok: {r1.rowcount + r2.rowcount} baris")
 
             elif marketplace == 'shopee':
-                # Hapus semua data Shopee lama lalu insert ulang
-                conn.execute(text("""
-                    DELETE FROM fact_balance_transaction WHERE source_marketplace = 'shopee'
-                """))
-
+                conn.execute(text(
+                    "DELETE FROM fact_balance_transaction WHERE source_marketplace = 'shopee'"
+                ))
                 sql = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
@@ -919,7 +912,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                         source_marketplace, source_filename, transaction_date_id
                     )
                     SELECT
-                        sc.sales_channel_id,
+                        cm.sales_channel_id,
                         TRIM(r.tanggal_transaksi)::TIMESTAMP::DATE,
                         TRIM(r.tipe_transaksi),
                         NULL,
@@ -936,20 +929,19 @@ def transform_fact_balance_transaction(engine, marketplace):
                         'shopee',
                         r.source_filename,
                         CAST(TO_CHAR(TRIM(r.tanggal_transaksi)::TIMESTAMP::DATE, 'YYYYMMDD') AS INT)
-                    FROM staging.stg_shopee_report r
-                    JOIN public.dim_store st
-                        ON LOWER(TRIM(st.nama_toko)) = LOWER(TRIM(r.nama_toko))
-                    JOIN public.dim_sales_channel sc
-                        ON sc.store_id = st.store_id
-                        AND sc.marketplace_id = (SELECT marketplace_id FROM public.dim_marketplace WHERE LOWER(nama_marketplace) = 'shopee' LIMIT 1)
-                    WHERE NULLIF(TRIM(r.jumlah), 'nan') IS NOT NULL
+                    FROM stg_shopee_report r
+                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko
+                    WHERE cm.sales_channel_id IS NOT NULL
+                      AND NULLIF(TRIM(r.jumlah), 'nan') IS NOT NULL
                       AND TRIM(r.tanggal_transaksi) ~ '^\\d{4}-\\d{2}-\\d{2}'
                 """)
                 result = conn.execute(sql)
                 logger.info(f"✅ fact_balance_transaction Shopee: {result.rowcount} baris")
 
             elif marketplace == 'lazada':
-                # Baris Withdrawal
+                conn.execute(text(
+                    "DELETE FROM fact_balance_transaction WHERE source_marketplace = 'lazada'"
+                ))
                 sql_withdrawal = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
@@ -975,11 +967,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND TRIM(r.transaction_time) ~ '^\\d{2} [A-Za-z]{3} \\d{4}'
                       AND TRIM(r.type) = 'Withdrawal'
-                    ON CONFLICT (sales_channel_id, payout_batch_id)
-                        WHERE payout_batch_id IS NOT NULL
-                    DO NOTHING
                 """)
-                # Baris non-Withdrawal
                 sql_non_withdrawal = text("""
                     INSERT INTO fact_balance_transaction (
                         sales_channel_id, transaction_date, type, sub_type,
@@ -1011,9 +999,6 @@ def transform_fact_balance_transaction(engine, marketplace):
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND TRIM(r.transaction_time) ~ '^\\d{2} [A-Za-z]{3} \\d{4}'
                       AND TRIM(r.type) != 'Withdrawal'
-                    ON CONFLICT (sales_channel_id, transaction_date, type, amount, source_filename)
-                        WHERE payout_batch_id IS NULL
-                    DO NOTHING
                 """)
                 r1 = conn.execute(sql_withdrawal)
                 r2 = conn.execute(sql_non_withdrawal)
