@@ -27,123 +27,122 @@ from src.db_config import logger
 # ============================================================
 
 SHOPEE_CHANNEL_MAP = {
-    'official':                 'Shopee',
-    'merapi':                   'Shopee-Merapi',
-    'merapiorganik':            'Shopee-Merapi',
-    'merapi organik':           'Shopee-Merapi',
-    'diy':                      'Shopee-DIY-Jateng',
-    'diy jateng':               'Shopee-DIY-Jateng',
-    'wellfarm diy':             'Shopee-DIY-Jateng',
-    'wellfarmdiyjateng':        'Shopee-DIY-Jateng',
-    'porice':                   'Shopee-Porice-Official',
-    'beras sehat':              'Shopee-Beras-Sehat',
-    'berassehat':               'Shopee-Beras-Sehat',
-    'bandar organik':           'Shopee-Bandar-Organik',
-    'bandarorganik':            'Shopee-Bandar-Organik',
-    'bandar organk':            'Shopee-Bandar-Organik',
-    'bandar':                   'Shopee-Bandar-Organik',
-    'lembah':                   'Shopee-Lembah-Organik',
-    'lembah organik':           'Shopee-Lembah-Organik',
-    'lembahorganik':            'Shopee-Lembah-Organik',
-    'diabetashop':              'Shopee-Diabetashop',
-    'diabetasop':               'Shopee-Diabetashop',
-    'berasdiabetes':            'Shopee-Diabetashop',
-    'truly':                    'Shopee-Truly-Organic',
-    'truly organik':            'Shopee-Truly-Organic',
-    'trulyorganik':             'Shopee-Truly-Organic',
-    'merbabu':                  'Shopee-Merbabu-Organik',
-    'merbabu organik':          'Shopee-Merbabu-Organik',
-    'merbabuorganik':           'Shopee-Merbabu-Organik',
-    'merababu':                 'Shopee-Merbabu-Organik',
-    'merbau':                   'Shopee-Merbabu-Organik',
-    'bromo':                    'Shopee-Bromo-Organik',
-    'bromoorganik':             'Shopee-Bromo-Organik',
-    'diet':                     'Shopee-Diet-Healthy-Corner',
-    'diet healthy':             'Shopee-Diet-Healthy-Corner',
-    'diethealthy':              'Shopee-Diet-Healthy-Corner',
-    'diet healthy corner':      'Shopee-Diet-Healthy-Corner',
-    'bogor':                    'Shopee-Bogor-Healthy-Store',
-    'bogor healthy':            'Shopee-Bogor-Healthy-Store',
-    'bogorhealthy':             'Shopee-Bogor-Healthy-Store',
-    'bogorhealthystore':        'Shopee-Bogor-Healthy-Store',
-    'bogor healhy':             'Shopee-Bogor-Healthy-Store',
-    'basecamp':                 'Shopee-Basecamp-Organik',
-    'basecamporganik':          'Shopee-Basecamp-Organik',
-    'basecamp organik':         'Shopee-Basecamp-Organik',
-    'owellnes':                 'Shopee-Owellnes',
-    'owellness':                'Shopee-Owellnes',
-    'sumber organik':           'Shopee-Sumber-Organik',
-    'sumber organik shop':      'Shopee-Sumber-Organik',
-    'sumberorganikshop':        'Shopee-Sumber-Organik',
-    'solo':                     'Shopee-Solo-Organik',
-    'solo organik':             'Shopee-Solo-Organik',
-    'soloorganik':              'Shopee-Solo-Organik',
-    'pusat beras':              'Shopee-Pusat-Beras-Berkualitas',
-    'pusat beras berkualitas':  'Shopee-Pusat-Beras-Berkualitas',
-    'pusat beras berkualita':   'Shopee-Pusat-Beras-Berkualitas',
-    'pusatberasberkualitas':    'Shopee-Pusat-Beras-Berkualitas',
-    'zona':                     'Shopee-Zona-Pangan-Sehat',
-    'zona pangan':              'Shopee-Zona-Pangan-Sehat',
-    'zonapangan':               'Shopee-Zona-Pangan-Sehat',
-    'zonapangansehat':          'Shopee-Zona-Pangan-Sehat',
-    'solusi':                   'Shopee-Solusi-Beras-Sehat',
-    'solusi beras sehat':       'Shopee-Solusi-Beras-Sehat',
-    'solusi beras seat':        'Shopee-Solusi-Beras-Sehat',
-    'solusiberassehat':         'Shopee-Solusi-Beras-Sehat',
-    'sumber pangan':            'Shopee-Sumber-Pangan-Pokok',
-    'sumber pangan pokok':      'Shopee-Sumber-Pangan-Pokok',
-    'sumberpanganpokok':        'Shopee-Sumber-Pangan-Pokok',
-    'porang sachet':            'Shopee-Porang-Sachet-Store',
-    'porang sachet store':      'Shopee-Porang-Sachet-Store',
-    'porangsachetstore':        'Shopee-Porang-Sachet-Store',
-    'porangsachet':             'Shopee-Porang-Sachet-Store',
-    'indoporang':               'Shopee-Indo-Porang-Market',
-    'indoporang market':        'Shopee-Indo-Porang-Market',
-    'organic':                  'Shopee-Organic-Groceries',
-    'organic groceries':        'Shopee-Organic-Groceries',
-    'organicgroceries':         'Shopee-Organic-Groceries',
-    'mekar':                    'Shopee-Mekar-Organik',
-    'mekar organik':            'Shopee-Mekar-Organik',
-    'mapan':                    'Shopee-Mapan-Organik',
-    'mapan organik':            'Shopee-Mapan-Organik',
-    'mapanorganik':             'Shopee-Mapan-Organik',
-    'mapan oraganik':           'Shopee-Mapan-Organik',
-    'medan':                    'Shopee-Medan-Organik',
-    'medan organik':            'Shopee-Medan-Organik',
-    'medanorganik':             'Shopee-Medan-Organik',
-    # '-', 'unknown_store', 'pako' → NULL (tidak ada di dict)
+    'official':                 'Official',
+    'merapi':                   'Merapi',
+    'merapiorganik':            'Merapi',
+    'merapi organik':           'Merapi',
+    'diy':                      'DIY Jateng',
+    'diy jateng':               'DIY Jateng',
+    'wellfarm diy':             'DIY Jateng',
+    'wellfarmdiyjateng':        'DIY Jateng',
+    'porice':                   'Porice Official',
+    'beras sehat':              'Beras Sehat',
+    'berassehat':               'Beras Sehat',
+    'bandar organik':           'Bandar Organik',
+    'bandarorganik':            'Bandar Organik',
+    'bandar organk':            'Bandar Organik',
+    'bandar':                   'Bandar Organik',
+    'lembah':                   'Lembah Organik',
+    'lembah organik':           'Lembah Organik',
+    'lembahorganik':            'Lembah Organik',
+    'diabetashop':              'Diabetashop',
+    'diabetasop':               'Diabetashop',
+    'berasdiabetes':            'Diabetashop',
+    'truly':                    'Truly Organic',
+    'truly organik':            'Truly Organic',
+    'trulyorganik':             'Truly Organic',
+    'merbabu':                  'Merbabu Organik',
+    'merbabu organik':          'Merbabu Organik',
+    'merbabuorganik':           'Merbabu Organik',
+    'merababu':                 'Merbabu Organik',
+    'merbau':                   'Merbabu Organik',
+    'bromo':                    'Bromo Organik',
+    'bromoorganik':             'Bromo Organik',
+    'diet':                     'Diet Healthy Corner',
+    'diet healthy':             'Diet Healthy Corner',
+    'diethealthy':              'Diet Healthy Corner',
+    'diet healthy corner':      'Diet Healthy Corner',
+    'bogor':                    'Bogor Healthy Store',
+    'bogor healthy':            'Bogor Healthy Store',
+    'bogorhealthy':             'Bogor Healthy Store',
+    'bogorhealthystore':        'Bogor Healthy Store',
+    'bogor healhy':             'Bogor Healthy Store',
+    'basecamp':                 'Basecamp Organik',
+    'basecamporganik':          'Basecamp Organik',
+    'basecamp organik':         'Basecamp Organik',
+    'owellnes':                 'Owellness',
+    'owellness':                'Owellness',
+    'sumber organik':           'Sumber Organik',
+    'sumber organik shop':      'Sumber Organik',
+    'sumberorganikshop':        'Sumber Organik',
+    'solo':                     'Solo Organik',
+    'solo organik':             'Solo Organik',
+    'soloorganik':              'Solo Organik',
+    'pusat beras':              'Pusat Beras Berkualitas',
+    'pusat beras berkualitas':  'Pusat Beras Berkualitas',
+    'pusat beras berkualita':   'Pusat Beras Berkualitas',
+    'pusatberasberkualitas':    'Pusat Beras Berkualitas',
+    'zona':                     'Zona Pangan Sehat',
+    'zona pangan':              'Zona Pangan Sehat',
+    'zonapangan':               'Zona Pangan Sehat',
+    'zonapangansehat':          'Zona Pangan Sehat',
+    'solusi':                   'Solusi Beras Sehat',
+    'solusi beras sehat':       'Solusi Beras Sehat',
+    'solusi beras seat':        'Solusi Beras Sehat',
+    'solusiberassehat':         'Solusi Beras Sehat',
+    'sumber pangan':            'Sumber Pangan Pokok',
+    'sumber pangan pokok':      'Sumber Pangan Pokok',
+    'sumberpanganpokok':        'Sumber Pangan Pokok',
+    'porang sachet':            'Porang Sachet Store',
+    'porang sachet store':      'Porang Sachet Store',
+    'porangsachetstore':        'Porang Sachet Store',
+    'porangsachet':             'Porang Sachet Store',
+    'indoporang':               'Indo Porang Market',
+    'indoporang market':        'Indo Porang Market',
+    'organic':                  'Organic Groceries',
+    'organic groceries':        'Organic Groceries',
+    'organicgroceries':         'Organic Groceries',
+    'mekar':                    'Mekar Organik',
+    'mekar organik':            'Mekar Organik',
+    'mapan':                    'Mapan Organik',
+    'mapan organik':            'Mapan Organik',
+    'mapanorganik':             'Mapan Organik',
+    'mapan oraganik':           'Mapan Organik',
+    'medan':                    'Medan Organik',
+    'medan organik':            'Medan Organik',
+    'medanorganik':             'Medan Organik',
+    'berasmedanorganik':        'Beras Medan Organik',
+    'beras medan organik':      'Beras Medan Organik',
 }
 
-# Key = (nama_toko, purchase_channel lowercase) → channel_name
+# Key = (nama_toko, purchase_channel lowercase) → channel_name (sesuai dim_sales_channel)
 TIKTOK_CHANNEL_MAP = {
-    ('wellfarm id',     'tiktok'):    'Tiktok-WellFarmID',
-    ('wellfarm id',     'tokopedia'): 'Tokopedia',
-    ('wellfarm store',  'tiktok'):    'Tiktok-WellFarm-Store',
-    ('wellfarm shop',   'tiktok'):    'Tiktok-WellFarm-Store',
-    ('pundi',           'tiktok'):    'Tiktok-Pundi-Organik',
-    ('beras organik id','tiktok'):    'Tiktok-Beras-OrganikID',
-    ('organik id',      'tiktok'):    'Tiktok-Beras-OrganikID',
-    ('merapi',          'tiktok'):    'Tiktok-Merapi-Organik',
-    ('merapi organik',  'tiktok'):    'Tiktok-Merapi-Organik',
-    ('merapi',          'tokopedia'): 'Tokopedia-Merapi',
-    ('merapi organik',  'tokopedia'): 'Tokopedia-Merapi',
-    ('beras sehat',     'tiktok'):    'Tiktok-Beras-Sehat-Shop',
-    ('beras sehat',     'tokopedia'): 'Tokopedia-Beras-Sehat',
-    ('bromo',           'tiktok'):    'Tiktok-Bromo-Organik',
-    ('owellness',       'tiktok'):    'Tiktok-Owellness',
-    ('porice',          'tokopedia'): 'Tokopedia-Porice-Official',
-    ('diy jateng',      'tiktok'):    'Tokopedia-DIY-Jateng',
-    ('diy jateng',      'tokopedia'): 'Tokopedia-DIY-Jateng',
-    ('diy',             'tiktok'):    'Tokopedia-DIY-Jateng',
-    ('diy',             'tokopedia'): 'Tokopedia-DIY-Jateng',
-    # Tidak ada channel untuk: basecamp, bogor/bogor healthy, pundi Tokopedia,
-    # beras organik id Tokopedia, porice TikTok → sales_channel_id = NULL
+    ('wellfarm id',      'tiktok'):    'Wellfarm ID',
+    ('wellfarm id',      'tokopedia'): 'Wellfarm ID',
+    ('wellfarm store',   'tiktok'):    'Wellfarm Store',
+    ('wellfarm shop',    'tiktok'):    'Wellfarm Store',
+    ('pundi',            'tiktok'):    'Pundi Organik',
+    ('beras organik id', 'tiktok'):    'Beras Organik ID',
+    ('organik id',       'tiktok'):    'Beras Organik ID',
+    ('merapi',           'tiktok'):    'Merapi',
+    ('merapi organik',   'tiktok'):    'Merapi Organik',
+    ('merapi',           'tokopedia'): 'Merapi',
+    ('merapi organik',   'tokopedia'): 'Merapi Organik',
+    ('beras sehat',      'tiktok'):    'Beras Sehat Shop',
+    ('beras sehat',      'tokopedia'): 'Beras Sehat',
+    ('bromo',            'tiktok'):    'Bromo Organik',
+    ('owellness',        'tiktok'):    'Owellness',
+    ('porice',           'tokopedia'): 'Porice Official',
+    ('diy jateng',       'tiktok'):    'DIY Jateng',
+    ('diy jateng',       'tokopedia'): 'DIY Jateng',
+    ('diy',              'tiktok'):    'DIY Jateng',
+    ('diy',              'tokopedia'): 'DIY Jateng',
 }
 
 LAZADA_CHANNEL_MAP = {
-    'official':    'Lazada-Wellfarm',
-    'merapi':      'Lazada-Merapi-Organik',
-    'beras sehat': 'Lazada-Beras-Sehat-Organik',
+    'official':    'Wellfarm',
+    'merapi':      'Merapi Organik',
+    'beras sehat': 'Beras Sehat Organik',
 }
 
 
@@ -396,26 +395,39 @@ def _create_temp_tables(conn):
 def _load_channel_map(conn, marketplace):
     conn.execute(text("DELETE FROM _tmp_channel_map"))
 
-    # Ambil ID aktual dari database
-    res = conn.execute(text("SELECT channel_name, sales_channel_id FROM dim_sales_channel"))
-    db_map = {r[0]: r[1] for r in res.fetchall()}
+    # Filter dim_sales_channel berdasarkan marketplace
+    mp_name_map = {
+        'shopee':           'Shopee',
+        'tiktok_tokopedia': 'TikTok-Tokopedia',
+        'lazada':           'Lazada',
+    }
+    mp_name = mp_name_map.get(marketplace, '')
+
+    res = conn.execute(text("""
+        SELECT sc.channel_name, sc.sales_channel_id
+        FROM public.dim_sales_channel sc
+        JOIN public.dim_marketplace mp ON mp.marketplace_id = sc.marketplace_id
+        WHERE mp.nama_marketplace = :mp
+    """), {'mp': mp_name})
+    # Gunakan LOWER untuk matching case-insensitive
+    db_map = {r[0].lower(): r[1] for r in res.fetchall()}
 
     rows = []
     if marketplace == 'shopee':
         for nama_toko, channel_name in SHOPEE_CHANNEL_MAP.items():
-            cid = db_map.get(channel_name)
+            cid = db_map.get(channel_name.lower())
             if cid:
                 rows.append({'nama_toko': nama_toko, 'purchase_channel': None, 'sales_channel_id': cid})
 
     elif marketplace == 'tiktok_tokopedia':
         for (nama_toko, pc), channel_name in TIKTOK_CHANNEL_MAP.items():
-            cid = db_map.get(channel_name)
+            cid = db_map.get(channel_name.lower())
             if cid:
                 rows.append({'nama_toko': nama_toko, 'purchase_channel': pc, 'sales_channel_id': cid})
 
     elif marketplace == 'lazada':
         for nama_toko, channel_name in LAZADA_CHANNEL_MAP.items():
-            cid = db_map.get(channel_name)
+            cid = db_map.get(channel_name.lower())
             if cid:
                 rows.append({'nama_toko': nama_toko, 'purchase_channel': None, 'sales_channel_id': cid})
 
