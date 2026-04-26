@@ -116,7 +116,7 @@ SHOPEE_CHANNEL_MAP = {
 }
 
 # Key = (nama_toko, purchase_channel lowercase) → channel_name (sesuai dim_sales_channel)
-TIKTOK_CHANNEL_MAP = {
+TIKTOK_CHANNEL_MAP = {  
     ('wellfarm id',      'tiktok'):    'Wellfarm ID',
     ('wellfarm id',      'tokopedia'): 'Wellfarm ID',
     ('wellfarm store',   'tiktok'):    'Wellfarm Store',
@@ -131,12 +131,18 @@ TIKTOK_CHANNEL_MAP = {
     ('beras sehat',      'tiktok'):    'Beras Sehat Shop',
     ('beras sehat',      'tokopedia'): 'Beras Sehat',
     ('bromo',            'tiktok'):    'Bromo Organik',
+    ('bromo organik',    'tiktok'):    'Bromo Organik',
     ('owellness',        'tiktok'):    'Owellness',
+    ('porice',           'tiktok'):    'Porice Official',
     ('porice',           'tokopedia'): 'Porice Official',
     ('diy jateng',       'tiktok'):    'DIY Jateng',
     ('diy jateng',       'tokopedia'): 'DIY Jateng',
     ('diy',              'tiktok'):    'DIY Jateng',
     ('diy',              'tokopedia'): 'DIY Jateng',
+    ('basecamp',         'tiktok'):    'Basecamp Organik',
+    ('basecamp organik', 'tiktok'):    'Basecamp Organik',
+    ('bogor healthy',    'tiktok'):    'Bogor Healthy',
+    ('bogor',            'tiktok'):    'Bogor Healthy',
 }
 
 LAZADA_CHANNEL_MAP = {
