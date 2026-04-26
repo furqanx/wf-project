@@ -1,6 +1,7 @@
 import pandas as pd
 import openpyxl
 import os
+import re
 import zipfile
 import xml.etree.ElementTree as ET
 from sqlalchemy import text
@@ -139,6 +140,7 @@ def extract_store_name(filename):
         'beras organik id',
         'berasorganikid',
         'organik id',             # alias pendek
+        'organikid',              # alias dari filename 'Beras OrganikID' (tanpa spasi)
         # Pundi
         'pundi',
     ]
@@ -146,8 +148,25 @@ def extract_store_name(filename):
     for store in store_keywords:
         if store in name_lower:
             return store
-            
+
     return "-"
+
+
+def extract_tiktok_report_store_name(filename):
+    """
+    Khusus file REPORT TikTok yang format namanya:
+    'Tokopedia [TokpedStore]-TikTok [TikTokStore] [tahun] - REPORT'
+    Ekstrak nama toko dari bagian TikTok saja agar tidak salah mapping ke channel Tokopedia.
+    """
+    name_lower = filename.lower()
+    match = re.search(r'tiktok\s+(.+?)\s+\d{4}', name_lower)
+    if match:
+        tiktok_part = match.group(1).strip()
+        result = extract_store_name(tiktok_part)
+        if result != '-':
+            return result
+    return extract_store_name(filename)
+
 
 def enforce_schema(df, valid_columns, filename, table_name='', file_path='', engine=None):
     """
@@ -1058,7 +1077,10 @@ def process_report_file(file_path, marketplace, engine):
     filename = os.path.basename(file_path)
     logger.info(f"Mengekstrak file REPORT: {filename} [{marketplace.upper()}]")
 
-    nama_toko = extract_store_name(filename)
+    if marketplace == 'tiktok_tokopedia':
+        nama_toko = extract_tiktok_report_store_name(filename)
+    else:
+        nama_toko = extract_store_name(filename)
 
     try:
         if marketplace == 'tiktok_tokopedia':

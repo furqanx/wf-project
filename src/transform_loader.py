@@ -124,6 +124,7 @@ TIKTOK_CHANNEL_MAP = {
     ('pundi',            'tiktok'):    'Pundi Organik',
     ('beras organik id', 'tiktok'):    'Beras Organik ID',
     ('organik id',       'tiktok'):    'Beras Organik ID',
+    ('organikid',        'tiktok'):    'Beras Organik ID',
     ('merapi',           'tiktok'):    'Merapi',
     ('merapi organik',   'tiktok'):    'Merapi Organik',
     ('merapi',           'tokopedia'): 'Merapi',
