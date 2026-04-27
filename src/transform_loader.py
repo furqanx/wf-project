@@ -116,34 +116,28 @@ SHOPEE_CHANNEL_MAP = {
 }
 
 # Key = (nama_toko, purchase_channel lowercase) → channel_name (sesuai dim_sales_channel)
-TIKTOK_CHANNEL_MAP = {  
-    ('wellfarm id',      'tiktok'):    'Wellfarm ID',
-    ('wellfarm id',      'tokopedia'): 'Wellfarm ID',
-    ('wellfarm store',   'tiktok'):    'Wellfarm Store',
-    ('wellfarm shop',    'tiktok'):    'Wellfarm Store',
-    ('pundi',            'tiktok'):    'Pundi Organik',
-    ('beras organik id', 'tiktok'):    'Beras Organik ID',
-    ('organik id',       'tiktok'):    'Beras Organik ID',
-    ('organikid',        'tiktok'):    'Beras Organik ID',
-    ('merapi',           'tiktok'):    'Merapi',
-    ('merapi organik',   'tiktok'):    'Merapi Organik',
-    ('merapi',           'tokopedia'): 'Merapi',
-    ('merapi organik',   'tokopedia'): 'Merapi Organik',
-    ('beras sehat',      'tiktok'):    'Beras Sehat Shop',
-    ('beras sehat',      'tokopedia'): 'Beras Sehat',
-    ('bromo',            'tiktok'):    'Bromo Organik',
-    ('bromo organik',    'tiktok'):    'Bromo Organik',
-    ('owellness',        'tiktok'):    'Owellness',
-    ('porice',           'tiktok'):    'Porice Official',
-    ('porice',           'tokopedia'): 'Porice Official',
-    ('diy jateng',       'tiktok'):    'DIY Jateng',
-    ('diy jateng',       'tokopedia'): 'DIY Jateng',
-    ('diy',              'tiktok'):    'DIY Jateng',
-    ('diy',              'tokopedia'): 'DIY Jateng',
-    ('basecamp',         'tiktok'):    'Basecamp Organik',
-    ('basecamp organik', 'tiktok'):    'Basecamp Organik',
-    ('bogor healthy',    'tiktok'):    'Bogor Healthy',
-    ('bogor',            'tiktok'):    'Bogor Healthy',
+TIKTOK_CHANNEL_MAP = {
+    'wellfarm id':      'Wellfarm ID',
+    'wellfarm store':   'Wellfarm Store',
+    'wellfarm shop':    'Wellfarm Store',
+    'pundi':            'Pundi Organik',
+    'beras organik id': 'Beras Organik ID',
+    'organik id':       'Beras Organik ID',
+    'organikid':        'Beras Organik ID',
+    'merapi organik':   'Merapi Organik',
+    'merapi':           'Bogor Healthy',
+    'beras sehat':      'Beras Sehat Shop',
+    'bromo organik':    'Bromo Organik',
+    'bromo':            'Bromo Organik',
+    'owellness':        'Owellness',
+    'porice':           'Porice Official',
+    'diy jateng':       'DIY Jateng',
+    'diy':              'DIY Jateng',
+    'official':         'Basecamp Organik',
+    'basecamp organik': 'Basecamp Organik',
+    'basecamp':         'Basecamp Organik',
+    'bogor healthy':    'Bogor Healthy',
+    'bogor':            'Bogor Healthy',
 }
 
 LAZADA_CHANNEL_MAP = {
@@ -427,10 +421,10 @@ def _load_channel_map(conn, marketplace):
                 rows.append({'nama_toko': nama_toko, 'purchase_channel': None, 'sales_channel_id': cid})
 
     elif marketplace == 'tiktok_tokopedia':
-        for (nama_toko, pc), channel_name in TIKTOK_CHANNEL_MAP.items():
+        for nama_toko, channel_name in TIKTOK_CHANNEL_MAP.items():
             cid = db_map.get(channel_name.lower())
             if cid:
-                rows.append({'nama_toko': nama_toko, 'purchase_channel': pc, 'sales_channel_id': cid})
+                rows.append({'nama_toko': nama_toko, 'purchase_channel': None, 'sales_channel_id': cid})
 
     elif marketplace == 'lazada':
         for nama_toko, channel_name in LAZADA_CHANNEL_MAP.items():
@@ -784,7 +778,6 @@ def transform_fact_fulfillment_logistics(engine, marketplace):
                         o.source_filename
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = o.nama_toko
-                        AND LOWER(cm.purchase_channel) = LOWER(NULLIF(TRIM(o.purchase_channel), 'nan'))
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.warehouse_name))
                     -- Coba exact match (provider + delivery_option) dulu
                     LEFT JOIN _tmp_shipping_map sm_exact
@@ -882,7 +875,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                         r.source_filename,
                         CAST(TO_CHAR(TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'), 'YYYYMMDD') AS INT)
                     FROM stg_tiktok_tokopedia_report r
-                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
+                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND REPLACE(TRIM(r.success_time), '/', '-') ~ '^\\d{4}-\\d{2}-\\d{2}'
                       AND TRIM(r.type) = 'Withdrawal'
@@ -911,7 +904,7 @@ def transform_fact_balance_transaction(engine, marketplace):
                         r.source_filename,
                         CAST(TO_CHAR(TO_DATE(REPLACE(TRIM(r.success_time), '/', '-'), 'YYYY-MM-DD'), 'YYYYMMDD') AS INT)
                     FROM stg_tiktok_tokopedia_report r
-                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko AND cm.purchase_channel = 'tiktok'
+                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = r.nama_toko
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND REPLACE(TRIM(r.success_time), '/', '-') ~ '^\\d{4}-\\d{2}-\\d{2}'
                       AND TRIM(r.type) != 'Withdrawal'
@@ -1193,7 +1186,6 @@ def transform_fact_returns_online(engine, marketplace):
                         o.source_filename
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = o.nama_toko
-                        AND LOWER(cm.purchase_channel) = LOWER(NULLIF(TRIM(o.purchase_channel), 'nan'))
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.warehouse_name))
                     LEFT JOIN dim_product dp ON dp.sku_code = NULLIF(TRIM(o.seller_sku), 'nan')
                     LEFT JOIN dim_cancel_return_reason cr
@@ -1242,7 +1234,6 @@ def transform_fact_returns_online(engine, marketplace):
                         o.source_filename
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = o.nama_toko
-                        AND LOWER(cm.purchase_channel) = LOWER(NULLIF(TRIM(o.purchase_channel), 'nan'))
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.warehouse_name))
                     LEFT JOIN dim_product dp ON dp.sku_code = NULLIF(TRIM(o.seller_sku), 'nan')
                     LEFT JOIN dim_cancel_return_reason cr
@@ -1939,7 +1930,6 @@ def transform_fact_sales_online(engine, marketplace):
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm
                         ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
-                       AND cm.purchase_channel = LOWER(TRIM(o.purchase_channel))
                     LEFT JOIN dim_sku_alias dsa ON dsa.sku_alias = NULLIF(TRIM(o.seller_sku), 'nan')
                     LEFT JOIN dim_product dp ON dp.sku_code = COALESCE(
                         (SELECT dp1.sku_code FROM dim_product dp1
@@ -2023,7 +2013,6 @@ def transform_fact_sales_online(engine, marketplace):
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm
                         ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
-                       AND cm.purchase_channel = LOWER(TRIM(o.purchase_channel))
                     LEFT JOIN dim_sku_alias dsa ON dsa.sku_alias = NULLIF(TRIM(o.seller_sku), 'nan')
                     LEFT JOIN dim_product dp ON dp.sku_code = COALESCE(
                         (SELECT dp1.sku_code FROM dim_product dp1
@@ -2300,11 +2289,6 @@ def transform_fact_settlement(engine, marketplace):
                     FROM stg_tiktok_tokopedia_income o
                     LEFT JOIN _tmp_channel_map cm
                         ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
-                       AND cm.purchase_channel = CASE
-                           WHEN LOWER(TRIM(o.order_source)) LIKE 'tiktok%' THEN 'tiktok'
-                           WHEN LOWER(TRIM(o.order_source)) LIKE 'tokopedia%' THEN 'tokopedia'
-                           ELSE LOWER(TRIM(o.order_source))
-                       END
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND NULLIF(TRIM(o.order_adjustment_id), 'nan') IS NOT NULL
                       AND o.type = 'Order'
@@ -2409,11 +2393,6 @@ def transform_fact_order_fees(engine, marketplace):
                         FROM stg_tiktok_tokopedia_income o
                         LEFT JOIN _tmp_channel_map cm
                             ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
-                           AND cm.purchase_channel = CASE
-                               WHEN LOWER(TRIM(o.order_source)) LIKE 'tiktok%' THEN 'tiktok'
-                               WHEN LOWER(TRIM(o.order_source)) LIKE 'tokopedia%' THEN 'tokopedia'
-                               ELSE LOWER(TRIM(o.order_source))
-                           END
                         CROSS JOIN LATERAL (VALUES
                             {_fee_values}
                         ) AS u(fee_type_id, fee_value)
