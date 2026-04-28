@@ -124,6 +124,12 @@ MARKETPLACE_OPTIONS = {
     'TikTok / Tokopedia': 'tiktok_tokopedia',
     'Lazada':             'lazada',
 }
+
+MARKETPLACE_ID = {
+    'shopee':             1,
+    'tiktok_tokopedia':   5,
+    'lazada':             4,
+}
 FASE_DESC = {
     'ORDER':  'Data transaksi pesanan',
     'INCOME': 'Data pemasukan & komisi',
@@ -164,6 +170,17 @@ MP_COLORS = {
 @st.cache_resource
 def get_db_engine():
     return get_engine()
+
+
+@st.cache_data(ttl=600)
+def load_stores(_engine, marketplace_id):
+    with _engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT channel_name FROM public.dim_sales_channel
+            WHERE marketplace_id = :mp_id
+            ORDER BY channel_name
+        """), {'mp_id': marketplace_id})
+        return [r[0] for r in result]
 
 
 # ── Log Handler ────────────────────────────────────────────────────────────────
@@ -295,6 +312,9 @@ def render_upload_tab(engine):
         marketplace_label = st.selectbox('Marketplace', list(MARKETPLACE_OPTIONS.keys()), index=0)
         marketplace = MARKETPLACE_OPTIONS[marketplace_label]
         st.markdown(' ')
+        stores = load_stores(engine, MARKETPLACE_ID[marketplace])
+        toko = st.selectbox('Toko', stores, help='Pilih toko asal file ini.')
+        st.markdown(' ')
         skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
         st.markdown('---')
         st.markdown(
@@ -308,7 +328,8 @@ def render_upload_tab(engine):
     st.markdown(
         f'<div class="wf-context-card">'
         f'Upload file <strong>{fase}</strong> dari '
-        f'<strong>{MARKETPLACE_ICON.get(marketplace_label,"")} {marketplace_label}</strong>. '
+        f'<strong>{MARKETPLACE_ICON.get(marketplace_label,"")} {marketplace_label}</strong>'
+        f' &mdash; Toko: <strong>{toko}</strong>. '
         f'Pastikan file sudah sesuai sebelum menekan tombol proses.'
         f'</div>',
         unsafe_allow_html=True,
@@ -408,11 +429,11 @@ def render_upload_tab(engine):
         progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
         try:
             if fase == 'ORDER':
-                process_order_file(tmp_path, marketplace, engine)
+                process_order_file(tmp_path, marketplace, engine, nama_toko_override=toko)
             elif fase == 'INCOME':
-                process_income_file(tmp_path, marketplace, engine)
+                process_income_file(tmp_path, marketplace, engine, nama_toko_override=toko)
             elif fase == 'REPORT':
-                process_report_file(tmp_path, marketplace, engine)
+                process_report_file(tmp_path, marketplace, engine, nama_toko_override=toko)
         except Exception as e:
             logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
             errors.append(uf.name)

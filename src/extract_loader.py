@@ -814,7 +814,7 @@ VALID_CREWDIBLE_COLS = [
 # ==========================================
 # FUNGSI PEMROSES FASE: ORDER
 # ==========================================
-def process_order_file(file_path, marketplace, engine):
+def process_order_file(file_path, marketplace, engine, nama_toko_override=None):
     """
     Membaca file ORDER, mencuci datanya, dan mengirimkannya ke database.
     """
@@ -844,7 +844,7 @@ def process_order_file(file_path, marketplace, engine):
         return
 
     # 2. Suntik Metadata
-    df['nama_toko'] = extract_store_name(filename)
+    df['nama_toko'] = nama_toko_override if nama_toko_override else extract_store_name(filename)
     df['source_filename'] = filename
 
     # 3. Bersihkan spasi kosong di pinggiran nama kolom Excel (sangat penting untuk Dictionary)
@@ -885,15 +885,15 @@ def process_order_file(file_path, marketplace, engine):
 # ==========================================
 # FUNGSI PEMROSES FASE: INCOME
 # ==========================================
-def process_income_file(file_path, marketplace, engine):
+def process_income_file(file_path, marketplace, engine, nama_toko_override=None):
     """
-    Membaca file INCOME, menangani multi-sheet (Shopee) & format dinamis, 
+    Membaca file INCOME, menangani multi-sheet (Shopee) & format dinamis,
     mencuci datanya, dan mengirimkannya ke database.
     """
     filename = os.path.basename(file_path)
     logger.info(f"Mengekstrak file INCOME: {filename} [{marketplace.upper()}]")
-    
-    nama_toko = extract_store_name(filename)
+
+    nama_toko = nama_toko_override if nama_toko_override else extract_store_name(filename)
 
     try:
         if marketplace in ['tiktok', 'tiktok_tokopedia']:
@@ -1068,7 +1068,7 @@ def process_income_file(file_path, marketplace, engine):
 # ==========================================
 # FUNGSI PEMROSES FASE: REPORT
 # ==========================================
-def process_report_file(file_path, marketplace, engine):
+def process_report_file(file_path, marketplace, engine, nama_toko_override=None):
     """
     Membaca file REPORT dan mengirimkannya ke database.
     - TikTok: Sheet1, header di row 0, data mulai row 1
@@ -1077,7 +1077,9 @@ def process_report_file(file_path, marketplace, engine):
     filename = os.path.basename(file_path)
     logger.info(f"Mengekstrak file REPORT: {filename} [{marketplace.upper()}]")
 
-    if marketplace == 'tiktok_tokopedia':
+    if nama_toko_override:
+        nama_toko = nama_toko_override
+    elif marketplace == 'tiktok_tokopedia':
         nama_toko = extract_tiktok_report_store_name(filename)
     else:
         nama_toko = extract_store_name(filename)
