@@ -125,7 +125,7 @@ TIKTOK_CHANNEL_MAP = {
     'organik id':       'Beras Organik ID',
     'organikid':        'Beras Organik ID',
     'merapi organik':   'Merapi Organik',
-    'merapi':           'Bogor Healthy',
+    'merapi':           'Merapi Organik',
     'beras sehat':      'Beras Sehat Shop',
     'bromo organik':    'Bromo Organik',
     'bromo':            'Bromo Organik',
