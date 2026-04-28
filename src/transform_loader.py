@@ -1070,11 +1070,16 @@ def transform_fact_returns_online(engine, marketplace):
                     FROM stg_shopee_orders o
                     LEFT JOIN _tmp_channel_map cm  ON cm.nama_toko = o.nama_toko
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.nama_gudang))
-                    LEFT JOIN dim_product dp
-                        ON dp.sku_code = COALESCE(
-                            NULLIF(TRIM(o.nomor_referensi_sku), 'nan'),
-                            NULLIF(TRIM(o.sku_induk), 'nan')
-                        )
+                    LEFT JOIN dim_sku_alias dsa ON dsa.sku_alias = COALESCE(
+                        NULLIF(TRIM(o.nomor_referensi_sku), 'nan'),
+                        NULLIF(TRIM(o.sku_induk), 'nan'))
+                    LEFT JOIN dim_product dp ON dp.sku_code = COALESCE(
+                        (SELECT dp1.sku_code FROM dim_product dp1 WHERE dp1.sku_code = (
+                            CASE WHEN COALESCE(NULLIF(TRIM(o.nomor_referensi_sku),'nan'),NULLIF(TRIM(o.sku_induk),'nan')) ~ '^P[0-9]'
+                                 THEN 'B'||SUBSTRING(COALESCE(NULLIF(TRIM(o.nomor_referensi_sku),'nan'),NULLIF(TRIM(o.sku_induk),'nan')),2)
+                                 ELSE COALESCE(NULLIF(TRIM(o.nomor_referensi_sku),'nan'),NULLIF(TRIM(o.sku_induk),'nan'))
+                            END) LIMIT 1),
+                        dsa.sku_code)
                     WHERE cm.sales_channel_id IS NOT NULL
                       AND dp.product_id IS NOT NULL
                       AND (
@@ -1187,7 +1192,10 @@ def transform_fact_returns_online(engine, marketplace):
                     FROM stg_tiktok_tokopedia_orders o
                     LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = o.nama_toko
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.warehouse_name))
-                    LEFT JOIN dim_product dp ON dp.sku_code = NULLIF(TRIM(o.seller_sku), 'nan')
+                    LEFT JOIN dim_sku_alias dsa ON dsa.sku_alias = NULLIF(TRIM(o.seller_sku), 'nan')
+                    LEFT JOIN dim_product dp ON dp.sku_code = COALESCE(
+                        (SELECT dp1.sku_code FROM dim_product dp1 WHERE dp1.sku_code = NULLIF(TRIM(o.seller_sku), 'nan') LIMIT 1),
+                        dsa.sku_code)
                     LEFT JOIN dim_cancel_return_reason cr
                         ON cr.reason_text_original = TRIM(o.cancel_reason)
                     WHERE cm.sales_channel_id IS NOT NULL
@@ -1296,7 +1304,10 @@ def transform_fact_returns_online(engine, marketplace):
                     FROM stg_lazada_orders o
                     LEFT JOIN _tmp_channel_map cm  ON cm.nama_toko = o.nama_toko
                     LEFT JOIN _tmp_warehouse_map wm ON wm.raw_name = LOWER(TRIM(o.warehouse))
-                    LEFT JOIN dim_product dp ON dp.sku_code = NULLIF(TRIM(o.seller_sku), 'nan')
+                    LEFT JOIN dim_sku_alias dsa ON dsa.sku_alias = NULLIF(TRIM(o.seller_sku), 'nan')
+                    LEFT JOIN dim_product dp ON dp.sku_code = COALESCE(
+                        (SELECT dp1.sku_code FROM dim_product dp1 WHERE dp1.sku_code = NULLIF(TRIM(o.seller_sku), 'nan') LIMIT 1),
+                        dsa.sku_code)
                     LEFT JOIN dim_cancel_return_reason cr
                         ON cr.reason_text_original = TRIM(REGEXP_REPLACE(
                             o.buyer_failed_delivery_reason, '[\\r\\n]+', '', 'g'))
