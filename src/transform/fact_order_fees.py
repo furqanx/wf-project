@@ -3,6 +3,7 @@
 from sqlalchemy import text
 from src.db_config import logger
 from src.transform._helpers import setup_maps
+from src.transform._checks import check_fact_order_fees_narrow
 from src.transform._maps import (
     TIKTOK_INCOME_FEE_COLS, TIKTOK_NON_FEE_COLS,
     SHOPEE_INCOME_MAIN_FEE_COLS, SHOPEE_MAIN_NON_FEE_COLS,
@@ -269,6 +270,7 @@ def run(engine, marketplace):
                                          SHOPEE_SF_MAPPED_FEE_COLS, SHOPEE_SF_NON_FEE_COLS, 'Shopee SF')
                 _warn_unmapped_narrow_fees(conn, 'shopee', 'Shopee Adj')
                 _save_shopee_adj_orphans(conn)
+                check_fact_order_fees_narrow(conn, 'shopee', engine)
 
             elif marketplace == 'lazada':
                 result = conn.execute(text("""
@@ -299,6 +301,7 @@ def run(engine, marketplace):
                 """))
                 logger.info(f"✅ fact_order_fees (lazada): {result.rowcount} baris")
                 _warn_unmapped_narrow_fees(conn, 'lazada', 'Lazada')
+                check_fact_order_fees_narrow(conn, 'lazada', engine)
 
             else:
                 logger.warning(f"Marketplace '{marketplace}' tidak dikenal.")

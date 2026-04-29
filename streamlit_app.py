@@ -14,7 +14,7 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.db_config import get_engine
-from src.file_inspector import check_file_status
+from src.file_inspector import check_file_status, check_duplicate_order_ids
 from src.extract_loader import process_order_file, process_income_file, process_report_file
 
 # ── Halaman ────────────────────────────────────────────────────────────────────
@@ -137,8 +137,8 @@ FASE_DESC = {
 }
 MARKETPLACE_ICON = {
     'Shopee':             '🟠',
-    'TikTok / Tokopedia': '⚫',
-    'Lazada':             '🔵',
+    'TikTok / Tokopedia': '🟢',
+    'Lazada':             '🟣',
 }
 STATUS_META = {
     'new':          ('✦', 'Baru',               'badge-new'),
@@ -162,8 +162,8 @@ TABLE_INFO = [
 
 MP_COLORS = {
     'Shopee':           '#EE4D2D',
-    'TikTok/Tokopedia': '#555555',
-    'Lazada':           '#0F146D',
+    'TikTok/Tokopedia': '#2ECC71',
+    'Lazada':           '#9B59B6',
 }
 
 # ── DB Engine ──────────────────────────────────────────────────────────────────
@@ -379,6 +379,30 @@ def render_upload_tab(engine):
                 for uf, s, _ in file_statuses),
         unsafe_allow_html=True,
     )
+
+    # ── Cek duplikasi order ID ──────────────────────────────────────────────────
+    st.markdown('<div class="wf-section-title">Cek Duplikasi Order ID</div>', unsafe_allow_html=True)
+    dup_results = {}
+    with st.spinner('Memeriksa duplikasi order ID...'):
+        for uf, _, tmp_path in file_statuses:
+            dup = check_duplicate_order_ids(tmp_path, fase, marketplace, engine)
+            dup_results[uf.name] = dup
+
+    has_duplicates = any(d['already_in_db'] > 0 for d in dup_results.values())
+    for fname, dup in dup_results.items():
+        if dup['total_in_file'] == 0:
+            continue
+        if dup['already_in_db'] > 0:
+            st.warning(
+                f"**{fname}** — "
+                f"{dup['already_in_db']} dari {dup['total_in_file']} order ID sudah ada di database. "
+                f"({dup['new']} baru)"
+            )
+            if dup['duplicate_ids']:
+                with st.expander(f"Lihat sample duplikat ({fname})"):
+                    st.code('\n'.join(dup['duplicate_ids']))
+        else:
+            st.success(f"**{fname}** — Semua {dup['total_in_file']} order ID baru.")
 
     anomaly_files = [uf.name for uf, s, _ in file_statuses if s['status'] == 'anomaly']
     partial_files  = [uf.name for uf, s, _ in file_statuses if s['status'] == 'partial']

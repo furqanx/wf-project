@@ -3,6 +3,7 @@
 from sqlalchemy import text
 from src.db_config import logger
 from src.transform._helpers import setup_maps
+from src.transform._checks import check_fact_returns_online
 
 
 def run(engine, marketplace):
@@ -188,6 +189,9 @@ def run(engine, marketplace):
 
             else:
                 logger.warning(f"Marketplace '{marketplace}' tidak dikenal.")
+                return
+
+            check_fact_returns_online(conn, marketplace, engine)
 
     except Exception as e:
         logger.error(f"❌ fact_returns_online ({marketplace}): {e}")

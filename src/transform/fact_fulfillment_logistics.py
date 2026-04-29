@@ -3,6 +3,7 @@
 from sqlalchemy import text
 from src.db_config import logger
 from src.transform._helpers import setup_maps
+from src.transform._checks import check_fact_fulfillment_logistics
 
 
 def run(engine, marketplace):
@@ -159,6 +160,7 @@ def run(engine, marketplace):
 
             result = conn.execute(sql)
             logger.info(f"✅ fact_fulfillment_logistics ({marketplace}): {result.rowcount} baris")
+            check_fact_fulfillment_logistics(conn, marketplace, engine)
 
     except Exception as e:
         logger.error(f"❌ fact_fulfillment_logistics ({marketplace}): {e}")

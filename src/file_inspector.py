@@ -13,6 +13,21 @@ import pandas as pd
 from sqlalchemy import text
 from src.db_config import logger
 
+
+# ── Konfigurasi order ID per (fase, marketplace) ───────────────────────────────
+# (excel_col, staging_col, staging_table)
+ORDER_ID_CONFIG = {
+    ('ORDER',  'shopee'):           ('No. Pesanan',        'no_pesanan',           'stg_shopee_orders'),
+    ('ORDER',  'tiktok_tokopedia'): ('Order ID',           'order_id',             'stg_tiktok_tokopedia_orders'),
+    ('ORDER',  'lazada'):           ('orderNumber',        'order_number',         'stg_lazada_orders'),
+    ('INCOME', 'shopee'):           ('No. Pesanan',        'no_pesanan',           'stg_shopee_income_main'),
+    ('INCOME', 'tiktok_tokopedia'): ('Order/adjustment ID','order_adjustment_id',  'stg_tiktok_tokopedia_income'),
+    ('INCOME', 'lazada'):           ('Nomor Pesanan',      'nomor_pesanan',        'stg_lazada_income'),
+    ('REPORT', 'shopee'):           ('No. Pesanan',        'no_pesanan',           'stg_shopee_report'),
+    ('REPORT', 'tiktok_tokopedia'): ('Reference ID',       'reference_id',         'stg_tiktok_tokopedia_report'),
+    ('REPORT', 'lazada'):           ('Transaction Number', 'transaction_number',   'stg_lazada_report'),
+}
+
 # ============================================================
 # MAPPING: (fase, marketplace) → tabel staging primer
 # ============================================================
@@ -226,3 +241,138 @@ def check_file_status(filename, file_path, fase, marketplace, engine):
         'rows_in_file' : rows_in_file,
         'table'        : table,
     }
+
+
+# ============================================================
+# CEK DUPLIKASI PER ORDER ID
+# ============================================================
+
+def _read_order_ids_from_file(file_path, fase, marketplace):
+    """Baca order ID dari file spreadsheet."""
+    key = (fase.upper(), marketplace.lower())
+    config = ORDER_ID_CONFIG.get(key)
+    if not config:
+        return set()
+
+    excel_col = config[0]
+
+    try:
+        if fase.upper() == 'ORDER' and marketplace.lower() == 'tiktok_tokopedia':
+            # TikTok ORDER: header di row 0, row 1 = deskripsi (skip), data mulai row 2
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            ws = wb.active
+            rows = list(ws.values)
+            wb.close()
+            if len(rows) < 3:
+                return set()
+            header = [str(c).strip() if c else '' for c in rows[0]]
+            if excel_col not in header:
+                return set()
+            idx = header.index(excel_col)
+            return {str(r[idx]).strip() for r in rows[2:] if r[idx] is not None and str(r[idx]).strip() not in ('', 'nan')}
+
+        elif fase.upper() == 'INCOME' and marketplace.lower() == 'shopee':
+            # Shopee INCOME: baca semua sheet yang mengandung 'income', header di row 5
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            ids = set()
+            for sheet in wb.sheetnames:
+                if 'income' not in sheet.lower():
+                    continue
+                ws = wb[sheet]
+                rows = list(ws.values)
+                if len(rows) < 7:
+                    continue
+                header = [str(c).strip() if c else '' for c in rows[5]]
+                if excel_col not in header:
+                    continue
+                idx = header.index(excel_col)
+                for r in rows[6:]:
+                    val = r[idx] if idx < len(r) else None
+                    if val is not None and str(val).strip() not in ('', 'nan'):
+                        ids.add(str(val).strip())
+            wb.close()
+            return ids
+
+        elif fase.upper() == 'INCOME' and marketplace.lower() == 'tiktok_tokopedia':
+            xl = pd.ExcelFile(file_path, engine='openpyxl')
+            target = 'Order details' if 'Order details' in xl.sheet_names else 0
+            df = pd.read_excel(file_path, sheet_name=target, dtype=str, engine='openpyxl')
+            df.columns = df.columns.str.strip()
+            if excel_col not in df.columns:
+                return set()
+            return set(df[excel_col].dropna().str.strip().replace('nan', '').replace('', pd.NA).dropna())
+
+        elif fase.upper() == 'REPORT' and marketplace.lower() == 'shopee':
+            # Shopee REPORT: sheet 'Transaction Report', header di row 17
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            if 'Transaction Report' not in wb.sheetnames:
+                wb.close()
+                return set()
+            ws = wb['Transaction Report']
+            rows = list(ws.values)
+            wb.close()
+            if len(rows) < 19:
+                return set()
+            header = [str(c).strip() if c else '' for c in rows[17]]
+            if excel_col not in header:
+                return set()
+            idx = header.index(excel_col)
+            return {str(r[idx]).strip() for r in rows[18:] if idx < len(r) and r[idx] is not None and str(r[idx]).strip() not in ('', 'nan')}
+
+        else:
+            # Default: read_excel biasa (Lazada ORDER/INCOME/REPORT, Shopee REPORT umum, TikTok REPORT)
+            df = pd.read_excel(file_path, dtype=str, engine='openpyxl')
+            df.columns = df.columns.str.strip()
+            if excel_col not in df.columns:
+                return set()
+            return set(df[excel_col].dropna().str.strip().replace({'nan': None, '': None}).dropna())
+
+    except Exception as e:
+        logger.error(f"Gagal baca order ID dari {file_path}: {e}")
+        return set()
+
+
+def check_duplicate_order_ids(file_path, fase, marketplace, engine):
+    """
+    Cek order ID dari file terhadap staging database.
+
+    Returns dict:
+        {
+            'total_in_file' : int,   jumlah order ID unik di file
+            'already_in_db' : int,   jumlah yang sudah ada di staging
+            'new'           : int,   jumlah yang belum ada
+            'duplicate_ids' : list,  sample order ID yang duplikat (maks 10)
+        }
+    """
+    key = (fase.upper(), marketplace.lower())
+    config = ORDER_ID_CONFIG.get(key)
+    if not config:
+        return {'total_in_file': 0, 'already_in_db': 0, 'new': 0, 'duplicate_ids': []}
+
+    _, staging_col, staging_table = config
+
+    ids_in_file = _read_order_ids_from_file(file_path, fase, marketplace)
+    if not ids_in_file:
+        return {'total_in_file': 0, 'already_in_db': 0, 'new': 0, 'duplicate_ids': []}
+
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(f"""
+                SELECT {staging_col}
+                FROM staging.{staging_table}
+                WHERE {staging_col} = ANY(:ids)
+            """), {'ids': list(ids_in_file)})
+            ids_in_db = {r[0] for r in result}
+
+        duplicates  = ids_in_file & ids_in_db
+        new_ids     = ids_in_file - ids_in_db
+
+        return {
+            'total_in_file' : len(ids_in_file),
+            'already_in_db' : len(duplicates),
+            'new'           : len(new_ids),
+            'duplicate_ids' : sorted(list(duplicates))[:10],
+        }
+    except Exception as e:
+        logger.error(f"Gagal cek duplikat order ID: {e}")
+        return {'total_in_file': len(ids_in_file), 'already_in_db': 0, 'new': len(ids_in_file), 'duplicate_ids': []}
