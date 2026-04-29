@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import pandas as pd
 import altair as alt
 import streamlit as st
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from src.db_config import get_engine
 from src.file_inspector import check_file_status, check_duplicate_order_ids
 from src.extract_loader import process_order_file, process_income_file, process_report_file
+from src.transform.runner import run as run_transform
 
 # ── Halaman ────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -181,6 +183,14 @@ def load_stores(_engine, marketplace_id):
             ORDER BY channel_name
         """), {'mp_id': marketplace_id})
         return [r[0] for r in result]
+
+
+# ── Background Transform ───────────────────────────────────────────────────────
+def _run_transform_background(marketplace, engine):
+    try:
+        run_transform(marketplace=marketplace, engine=engine)
+    except Exception as e:
+        logging.getLogger().error(f"[TRANSFORM-BG] {marketplace}: {e}")
 
 
 # ── Log Handler ────────────────────────────────────────────────────────────────
@@ -469,13 +479,21 @@ def render_upload_tab(engine):
     progress_bar.progress(1.0, text='Selesai!')
     st.markdown('<hr>', unsafe_allow_html=True)
 
+    sukses = total - len(errors)
     if errors:
-        st.error(f'**Proses selesai dengan {len(errors)} error.**  \n'
-                 + '  \n'.join(f'• `{f}`' for f in errors))
+        st.error(f'**Proses selesai dengan {len(errors)} error.**  \n' + '  \n'.join(f'• `{f}`' for f in errors))
     else:
         st.success(f'**Berhasil!** {total} file diproses tanpa error.')
+
+    if sukses > 0:
         load_staging_summary.clear()
         load_timeseries.clear()
+        threading.Thread(
+            target=_run_transform_background,
+            args=(marketplace, engine),
+            daemon=True,
+        ).start()
+        st.info(f'🔄 Transform berjalan di background ({sukses} file berhasil dimuat). Notifikasi dikirim via Telegram setelah selesai.')
 
     final_logs = st.session_state.get('log_lines', [])
     if final_logs:

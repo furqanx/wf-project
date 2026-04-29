@@ -6,6 +6,7 @@ Urutan eksekusi penting — ada dependensi antar tabel.
 
 from src.db_config import get_engine, logger
 from src.transform import (
+    dim_customer,
     fact_fulfillment_logistics,
     fact_balance_transaction,
     fact_returns_online,
@@ -27,6 +28,7 @@ def run(marketplace: str, engine=None):
 
     logger.info(f"🔄 Memulai TRANSFORM untuk marketplace: {marketplace.upper()}")
 
+    dim_customer.run(engine, marketplace)
     fact_fulfillment_logistics.run(engine, marketplace)
     fact_balance_transaction.run(engine, marketplace)
     fact_returns_online.run(engine, marketplace)
