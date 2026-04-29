@@ -4,7 +4,9 @@ import argparse
 import time
 from src.db_config import get_engine, logger
 from src.extract_loader import process_order_file, process_income_file, process_report_file, process_crewdible_file
-from src.transform_loader import run_transform, run_transform_crewdible, load_dim_b2b_partner
+from src.transform.runner import run as run_transform
+from src.crewdible.runner import run as run_transform_crewdible
+from src.b2b_loader import load_dim_b2b_partner
 # from src.raw_material_loader import load_raw_material_purchase
 # from src.production_loader import load_production_data
 # from src.stock_out_loader import load_stock_out
@@ -92,7 +94,7 @@ if __name__ == "__main__":
         
     # 2. Jalankan fase yang dipilih
     if args.fase.upper() == 'TRANSFORM':
-        run_transform(engine=db_engine, marketplace=args.marketplace)
+        run_transform(marketplace=args.marketplace, engine=db_engine)
     elif args.fase.upper() == 'TRANSFORM_CREWDIBLE':
         run_transform_crewdible(engine=db_engine)
     elif args.fase.upper() == 'LOAD_B2B_PARTNER':
