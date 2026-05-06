@@ -4,6 +4,7 @@ Entry point untuk menjalankan seluruh pipeline TRANSFORM.
 Urutan eksekusi penting — ada dependensi antar tabel.
 """
 
+from sqlalchemy import text
 from src.db_config import get_engine, logger
 from src.transform import (
     dim_customer,
@@ -14,6 +15,24 @@ from src.transform import (
     fact_settlement,
     fact_order_fees,
 )
+
+MATERIALIZED_VIEWS = [
+    'public.mv_sales_online',
+    'public.mv_fees',
+    'public.mv_balance_cost',
+    'public.mv_crewdible_cost',
+    'public.mv_sales_offline',
+    'public.mv_combined_revenue',
+    'public.mv_monthly_summary',
+]
+
+
+def refresh_materialized_views(engine):
+    with engine.begin() as conn:
+        for mv in MATERIALIZED_VIEWS:
+            logger.info(f"🔄 Refresh materialized view: {mv}")
+            conn.execute(text(f"REFRESH MATERIALIZED VIEW {mv}"))
+            logger.info(f"✅ {mv} selesai di-refresh")
 
 
 VALID_MARKETPLACES = {'shopee', 'lazada', 'tiktok_tokopedia'}
@@ -36,6 +55,7 @@ def run(marketplace: str, engine=None):
     fact_settlement.run(engine, marketplace)
     fact_order_fees.run(engine, marketplace)
 
+    refresh_materialized_views(engine)
     logger.info(f"✅ TRANSFORM selesai untuk {marketplace.upper()}")
 
 
