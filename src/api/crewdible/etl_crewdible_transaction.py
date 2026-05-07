@@ -5,10 +5,12 @@ import json
 from datetime import datetime, timedelta
 from prefect import task, flow, get_run_logger
 from sqlalchemy import text
+from dotenv import load_dotenv
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+load_dotenv()
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 from src.db_config import get_engine
-from src.crewdible.crewdible_helper import CrewdibleAuthHelper
+from src.api.crewdible.crewdible_helper import CrewdibleAuthHelper
 
 CLIENT_ID = os.getenv("CREWDIBLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("CREWDIBLE_CLIENT_SECRET")
