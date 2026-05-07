@@ -63,7 +63,7 @@ class AccurateAuthHelper:
 
             # Memastikan response sukses (s: true) dan mengambil nilai 'host'
             if result.get("s"):
-                host = result.get("d", {}).get("host")
+                host = result.get("d", {}).get("database", {}).get("host")
                 if not host:
                     raise ValueError("URL Host tidak ditemukan dalam response Accurate.")
                 return host

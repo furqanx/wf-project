@@ -6,9 +6,12 @@ from datetime import datetime, timedelta
 from prefect import task, flow, get_run_logger
 from sqlalchemy import text
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from dotenv import load_dotenv
+load_dotenv()
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 from src.db_config import get_engine
-from src.accurate.accurate_helper import AccurateAuthHelper
+from src.api.accurate.accurate_helper import AccurateAuthHelper
 
 API_TOKEN        = os.getenv("ACCURATE_API_TOKEN")
 SIGNATURE_SECRET = os.getenv("ACCURATE_SIGNATURE_SECRET")
@@ -77,7 +80,7 @@ TRANSACTION_ENDPOINT_MAP = {
 @task(retries=2, retry_delay_seconds=10)
 def extract_accurate_incremental(dynamic_host, endpoint, helper, start_date_str, end_date_str):
     logger = get_run_logger()
-    url = f"{dynamic_host}/accurate{endpoint}.do"
+    url = f"{dynamic_host}/accurate{endpoint}/list.do"
     
     all_data = []
     page = 1
