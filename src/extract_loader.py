@@ -461,6 +461,7 @@ SHOPEE_ORDER_COLUMN_MAP = {
     'Harga Setelah Diskon': 'harga_setelah_diskon',
     'Jumlah': 'jumlah',
     'Returned quantity': 'returned_quantity',
+    'Dibayar Pembeli': 'total_harga_produk',
     'Total Harga Produk': 'total_harga_produk',
     'Dibayar Pembeli': 'total_harga_produk',      # alias
     'Total Diskon': 'total_diskon',
