@@ -155,13 +155,34 @@ TABLE_INFO = [
     ('stg_shopee_orders',           'Shopee',           'ORDER'),
     ('stg_tiktok_tokopedia_orders', 'TikTok/Tokopedia', 'ORDER'),
     ('stg_lazada_orders',           'Lazada',           'ORDER'),
+
     ('stg_shopee_income_main',      'Shopee',           'INCOME'),
     ('stg_tiktok_tokopedia_income', 'TikTok/Tokopedia', 'INCOME'),
     ('stg_lazada_income',           'Lazada',           'INCOME'),
+
     ('stg_shopee_report',           'Shopee',           'REPORT'),
     ('stg_tiktok_tokopedia_report', 'TikTok/Tokopedia', 'REPORT'),
     ('stg_lazada_report',           'Lazada',           'REPORT'),
 ]
+
+COMPLETE_TABLE_INFO = [
+    ('stg_shopee_orders',                        'Shopee',           'ORDER'),
+    ('stg_tiktok_tokopedia_orders',              'TikTok/Tokopedia', 'ORDER'),
+    ('stg_lazada_orders',                        'Lazada',           'ORDER'),
+
+    ('stg_shopee_income_main',                   'Shopee',           'INCOME'),
+    ('stg_shopee_income_adjustment',             'Shopee',           'INCOME'),
+    ('stg_shopee_income_order_processing_fee',   'Shopee',           'INCOME'),
+    ('stg_shopee_income_service_fee',            'Shopee',           'INCOME'),
+    ('stg_shopee_income_shipping_discrepancy',   'Shopee',           'INCOME'),
+    ('stg_tiktok_tokopedia_income',              'TikTok/Tokopedia', 'INCOME'),
+    ('stg_lazada_income',                        'Lazada',           'INCOME'),
+
+    ('stg_shopee_report',                        'Shopee',           'REPORT'),
+    ('stg_tiktok_tokopedia_report',              'TikTok/Tokopedia', 'REPORT'),
+    ('stg_lazada_report',                        'Lazada',           'REPORT'),
+]
+
 
 MP_COLORS = {
     'Shopee':           '#EE4D2D',
@@ -247,6 +268,31 @@ def load_staging_summary(_engine):
     return pd.DataFrame(rows)
 
 
+# @st.cache_data(ttl=300)
+# def load_order_id_summary(_engine):
+#     rows = []
+#     with _engine.connect() as conn:
+#         for table, marketplace, fase in COMPLETE_TABLE_INFO:
+#             try:
+#                 result = conn.execute(text(f"""
+#                     SELECT 
+#                         source_filename, 
+#                         COUNT(DISTINCT order_number) AS "jumlah_order_id"
+#                     FROM staging.stg_lazada_orders
+#                     GROUP BY source_filename;
+#                 """))
+#                 for r in result:
+#                     rows.append({
+#                         'Marketplace':     marketplace,
+#                         'Fase':            fase, 
+#                         'File':            r.source_filename,
+#                         'Jumlah Order ID': int(r.jumlah_order_id)
+#                     })
+#             except Exception:
+#                 pass
+#     return pd.DataFrame(rows)
+
+
 @st.cache_data(ttl=300)
 def load_timeseries(_engine):
     union_parts = [
@@ -323,8 +369,7 @@ def render_upload_tab(engine):
     with st.sidebar:
         st.markdown('### ⚙️ Pengaturan Upload')
         st.markdown('---')
-        fase = st.selectbox('Fase Data', FASE_OPTIONS, index=0,
-                            help='Pilih jenis data yang akan diunggah.')
+        fase = st.selectbox('Fase Data', FASE_OPTIONS, index=0, help='Pilih jenis data yang akan diunggah.')
         st.caption(f'_{FASE_DESC.get(fase, "")}_')
         st.markdown(' ')
         marketplace_label = st.selectbox('Marketplace', list(MARKETPLACE_OPTIONS.keys()), index=0)
@@ -1049,8 +1094,7 @@ def render_monitoring_tab(engine):
         return
 
     # Summary matrix
-    st.markdown('<div class="wf-section-title">Total Baris per Marketplace & Fase</div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="wf-section-title">Total Baris per Marketplace & Fase</div>', unsafe_allow_html=True)
     pivot = df.groupby(['Marketplace', 'Fase'])['Baris'].sum().reset_index()
     pivot_wide = pivot.pivot(index='Marketplace', columns='Fase', values='Baris').fillna(0).astype(int)
     for col in ['ORDER', 'INCOME', 'REPORT']:
@@ -1262,18 +1306,39 @@ def main():
         st.error(f'Gagal terhubung ke database: {e}')
         return
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        '📤  Upload Data', '📦  Crewdible', '📋  Penjualan Offline', '📊  Status Data', '👥  Master Partner'
+    # tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    #     '📤  Upload Data', 
+    #     '📦  Crewdible', 
+    #     '📋  Penjualan Offline', 
+    #     '📊  Status Data', 
+    #     '👥  Master Partner'
+    # ])
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        '📤  Upload Data Sales Online', 
+        '📋  Upload Data Sales Offline', 
+        '📊  Status Data', 
+        '👥  Master Partner'
     ])
+
+    # with tab1:
+    #     render_upload_tab(engine)
+    # with tab2:
+    #     render_crewdible_tab(engine)
+    # with tab3:
+    #     render_sales_offline_tab(engine)
+    # with tab4:
+    #     render_monitoring_tab(engine)
+    # with tab5:
+    #     render_master_partner_tab(engine)
+
     with tab1:
         render_upload_tab(engine)
     with tab2:
-        render_crewdible_tab(engine)
-    with tab3:
         render_sales_offline_tab(engine)
-    with tab4:
+    with tab3:
         render_monitoring_tab(engine)
-    with tab5:
+    with tab4:
         render_master_partner_tab(engine)
 
 
