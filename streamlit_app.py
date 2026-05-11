@@ -378,7 +378,8 @@ def render_upload_tab(engine):
         stores = load_stores(engine, MARKETPLACE_ID[marketplace])
         toko = st.selectbox('Toko', stores, help='Pilih toko asal file ini.')
         st.markdown(' ')
-        skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
+        # skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
+        skip_loaded = False
         st.markdown('---')
         st.markdown(
             f"<div style='font-size:0.78rem;color:#64748b;'>"
