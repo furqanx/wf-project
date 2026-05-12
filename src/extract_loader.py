@@ -336,6 +336,7 @@ VALID_SHOPEE_INCOME_SF_COLS = [
     'biaya_campaign_4_4', 'biaya_campaign_5_5', 'biaya_campaign_6_6',
     'biaya_campaign_7_7', 'biaya_campaign_8_8', 'biaya_campaign_9_9',
     'biaya_campaign_10_10', 'biaya_campaign_11_11', 'biaya_campaign_12_12',
+    'biaya_proses_pesanan',
     'nama_toko', 'source_filename' # Metadata
 ]
 
@@ -766,6 +767,7 @@ SHOPEE_INCOME_SF_COLUMN_MAP = {
     'Biaya Campaign 10.10 2025': 'biaya_campaign_10_10',
     'Biaya Campaign 11.11 2025': 'biaya_campaign_11_11',
     'Biaya Campaign 12.12 2025': 'biaya_campaign_12_12',
+    'Biaya Proses Pesanan': 'biaya_proses_pesanan'
 }
 
 SHOPEE_INCOME_SD_COLUMN_MAP = {
