@@ -517,11 +517,11 @@ def render_upload_tab(engine):
         progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
         try:
             if fase == 'ORDER':
-                process_order_file(tmp_path, marketplace, engine, nama_toko_override=toko)
+                process_order_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
             elif fase == 'INCOME':
-                process_income_file(tmp_path, marketplace, engine, nama_toko_override=toko)
+                process_income_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
             elif fase == 'REPORT':
-                process_report_file(tmp_path, marketplace, engine, nama_toko_override=toko)
+                process_report_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
         except Exception as e:
             logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
             errors.append(uf.name)
