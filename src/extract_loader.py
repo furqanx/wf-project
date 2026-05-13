@@ -307,14 +307,37 @@ VALID_SHOPEE_ORDER_COLS = [
 
 VALID_LAZADA_ORDER_COLS = [
     'order_item_id', 'order_type', 'guarantee', 'delivery_type', 'lazada_id', 'seller_sku', 'lazada_sku', 'warehouse', 'create_time', 'update_time', 'rts_sla', 'tts_sla', 'order_number', 'invoice_required', 'invoice_number', 'delivered_date', 'customer_name', 'customer_email', 'national_registration_number', 'shipping_name', 'shipping_address', 'shipping_address2', 'shipping_address3', 'shipping_address4', 'shipping_address5', 'shipping_phone', 'shipping_phone2', 'shipping_city', 'shipping_post_code', 'shipping_country', 'shipping_region', 'billing_name', 'billing_addr', 'billing_addr2', 'billing_addr3', 'billing_addr4', 'billing_addr5', 'billing_phone', 'billing_phone2', 'billing_city', 'billing_post_code', 'billing_country', 'tax_code', 'branch_number', 'tax_invoice_requested', 'pay_method', 'paid_price', 'unit_price', 'seller_discount_total', 'shipping_fee', 'wallet_credit', 'item_name', 'variation', 'cd_shipping_provider', 'shipping_provider', 'shipment_type_name', 'shipping_provider_type', 'cd_tracking_code', 'tracking_code', 'tracking_url', 'shipping_provider_fm', 'tracking_code_fm', 'tracking_url_fm', 'promised_shipping_time', 'premium', 'status', 'buyer_failed_delivery_return_initiator', 'buyer_failed_delivery_reason', 'buyer_failed_delivery_detail', 'buyer_failed_delivery_user_name', 'bundle_id', 'semi_managed', 'flexible_delivery_time', 'bundle_discount', 'refund_amount', 'seller_note',
+    'platform_discount_total',
     'nama_toko', 'source_filename' # Metadata
 ]
 
 
 VALID_TIKTOK_INCOME_COLS = [
-    'order_adjustment_id', 'type', 'order_created_time', 'order_settled_time', 'currency', 'total_settlement_amount', 'total_revenue', 'subtotal_after_seller_discounts', 'subtotal_before_discounts', 'seller_discounts', 'distance_item_fee_from_horizon_plus_program', 'refund_subtotal_after_seller_discounts', 'refund_subtotal_before_seller_discounts', 'refund_of_seller_discounts', 'total_fees', 'platform_commission_fee', 'pre_order_service_fee', 'mall_service_fee', 'payment_fee', 'shipping_cost', 'shipping_costs_passed_on_to_the_logistics_provider', 'replacement_shipping_fee_passed_on_to_the_customer', 'exchange_shipping_fee_passed_on_to_the_customer', 'shipping_cost_borne_by_the_platform', 'shipping_cost_paid_by_the_customer', 'refunded_shipping_cost_paid_by_the_customer', 'return_shipping_costs_passed_on_to_the_customer', 'shipping_cost_subsidy', 'distance_shipping_fee_from_horizon_plus_program', 'affiliate_commission', 'affiliate_partner_commission', 'affiliate_shop_ads_commission', 'affiliate_partner_shop_ads_commission', 'shipping_fee_program_service_fee', 'dynamic_commission', 'bonus_cashback_service_fee', 'live_specials_service_fee', 'voucher_xtra_service_fee', 'order_processing_fee', 'eams_program_service_fee', 'brands_crazy_deals_flash_sale_service_fee', 'dilayani_tokopedia_fee', 'dilayani_tokopedia_handling_fee', 'paylater_program_fee', 'campaign_resource_fee', 'installation_service_fee', 'article_22_income_tax_withheld', 'platform_special_service_fee', 'gmv_max_ad_fee', 'gmv_max_coupon', 
-    'gmv_max_coupon_sales_tax', 'managed_service_plan_sales_tax', 'managed_service_plan_per_order_fee',
-    'ajustment_amount', 'related_order_id', 'shipping_fee_adjustment', 'shipping_fee_compensation', 'chargeback', 'customer_service_compensation', 'promotion_adjustment', 'platform_compensation', 'platform_penalty', 'sample_shipping_fee', 'logistics_reimbursement', 'platform_reimbursement', 'deductions_incurred_by_seller', 'shipping_fee_rebate', 'warehouse_service_fee', 'platform_commission_adjustment', 'platform_commission_compensation', 'transaction_fee_adjustment', 'top_up_for_ads_from_settled_balances', 'campaign_package', 'additional_campaign_package', 'gmv_payment_for_tiktok_ads', 'gmv_payment_for_promote', 'shipping_insurance_compensation', 'other_adjustment', 'customer_payment', 'customer_refund', 'seller_co_funded_voucher_discount', 'refund_of_seller_co_funded_voucher_discount', 'platform_discounts', 'refund_of_platform_discounts', 'platform_co_funded_voucher_discounts', 'refund_of_platform_co_funded_voucher_discounts', 'seller_shipping_cost_discount', 'estimated_package_weight', 'actual_package_weight', 'order_source', 'shopping_center_items',
+    'order_adjustment_id', 'type', 'order_created_time', 'order_settled_time', 'currency', 
+    'total_settlement_amount', 'total_revenue', 'subtotal_after_seller_discounts', 'subtotal_before_discounts', 
+    'seller_discounts', 'distance_item_fee_from_horizon_plus_program', 'refund_subtotal_after_seller_discounts', 
+    'refund_subtotal_before_seller_discounts', 'refund_of_seller_discounts', 'total_fees', 'platform_commission_fee', 
+    'pre_order_service_fee', 'mall_service_fee', 'payment_fee', 'shipping_cost', 'shipping_costs_passed_on_to_the_logistics_provider', 
+    'replacement_shipping_fee_passed_on_to_the_customer', 'exchange_shipping_fee_passed_on_to_the_customer', 
+    'shipping_cost_borne_by_the_platform', 'shipping_cost_paid_by_the_customer', 'refunded_shipping_cost_paid_by_the_customer', 
+    'return_shipping_costs_passed_on_to_the_customer', 'shipping_cost_subsidy', 'distance_shipping_fee_from_horizon_plus_program', 
+    'affiliate_commission', 'affiliate_partner_commission', 'affiliate_shop_ads_commission', 'affiliate_partner_shop_ads_commission', 
+    'shipping_fee_program_service_fee', 'dynamic_commission', 'bonus_cashback_service_fee', 'live_specials_service_fee', 
+    'voucher_xtra_service_fee', 'order_processing_fee', 'eams_program_service_fee', 'brands_crazy_deals_flash_sale_service_fee', 
+    'dilayani_tokopedia_fee', 'dilayani_tokopedia_handling_fee', 'paylater_program_fee', 'campaign_resource_fee', 
+    'installation_service_fee', 'article_22_income_tax_withheld', 'platform_special_service_fee', 'gmv_max_ad_fee', 
+    'gmv_max_coupon', 'gmv_max_coupon_sales_tax', 'managed_service_plan_sales_tax', 'managed_service_plan_per_order_fee', 
+    'logistics_service_fee',
+    'ajustment_amount', 
+    'related_order_id', 'shipping_fee_adjustment', 'shipping_fee_compensation', 'chargeback', 
+    'customer_service_compensation', 'promotion_adjustment', 'platform_compensation', 'platform_penalty', 'sample_shipping_fee', 
+    'logistics_reimbursement', 'platform_reimbursement', 'deductions_incurred_by_seller', 'shipping_fee_rebate', 'warehouse_service_fee', 
+    'platform_commission_adjustment', 'platform_commission_compensation', 'transaction_fee_adjustment', 
+    'top_up_for_ads_from_settled_balances', 'campaign_package', 'additional_campaign_package', 'gmv_payment_for_tiktok_ads', 
+    'gmv_payment_for_promote', 'shipping_insurance_compensation', 'other_adjustment', 'customer_payment', 'customer_refund', 
+    'seller_co_funded_voucher_discount', 'refund_of_seller_co_funded_voucher_discount', 'platform_discounts', 
+    'refund_of_platform_discounts', 'platform_co_funded_voucher_discounts', 'refund_of_platform_co_funded_voucher_discounts', 
+    'seller_shipping_cost_discount', 'estimated_package_weight', 'actual_package_weight', 'order_source', 'shopping_center_items',
     'nama_toko', 'source_filename' # Metadata
 ]
 
@@ -548,6 +571,9 @@ LAZADA_ORDER_COLUMN_MAP = {
     'paidPrice': 'paid_price',
     'unitPrice': 'unit_price',
     'sellerDiscountTotal': 'seller_discount_total',
+
+    'platformDiscountTotal': 'platform_discount_total',
+
     'shippingFee': 'shipping_fee',
     'walletCredit': 'wallet_credit',
     'itemName': 'item_name',
@@ -628,15 +654,21 @@ TIKTOK_INCOME_COLUMN_MAP = {
     'Article 22 Income Tax withheld': 'article_22_income_tax_withheld', 
     'Platform special service fee': 'platform_special_service_fee', 
     'GMV Max ad fee': 'gmv_max_ad_fee', 
-    'GMV Max Coupon': 'gmv_max_coupon', 
+    'GMV Max Coupon': 'gmv_max_coupon',
+    'GMV Max coupon': 'gmv_max_coupon',
     'GMV Max coupon sales tax': 'gmv_max_coupon_sales_tax',
     'Managed service plan (Sales tax)': 'managed_service_plan_sales_tax',
     'Managed service plan (Per order fee)': 'managed_service_plan_per_order_fee',
+
     'Ajustment amount': 'ajustment_amount', 
+    
     'Related order ID': 'related_order_id', 
     'Shipping fee adjustment': 'shipping_fee_adjustment', 
     'Shipping fee compensation': 'shipping_fee_compensation', 
-    'Chargeback': 'chargeback', 
+    'Chargeback': 'chargeback',
+
+    'Logistics service fee': 'logistics_service_fee',
+    
     'Customer service compensation': 'customer_service_compensation', 
     'Promotion adjustment': 'promotion_adjustment', 
     'Platform compensation': 'platform_compensation', 
