@@ -165,6 +165,7 @@ TIKTOK_WAREHOUSE_MAP = {
 LAZADA_WAREHOUSE_MAP = {
     'gudang mavisa':   'Mavisha',
     'mavisha storage': 'Mavisha',
+    'gudang hirota':   'Hirota',
 }
 
 # ── Shipping ───────────────────────────────────────────────────────────────────
