@@ -15,10 +15,21 @@ def run(engine, marketplace):
             if marketplace == 'shopee':
                 sql = text("""
                     INSERT INTO public.fact_fulfillment_logistics (
-                        order_id, sales_channel_id, shipping_service_id, warehouse_id,
-                        sla_status_id, tracking_id, weight_kg, handover_type, is_dropship,
-                        time_created, time_paid, time_rts, time_delivered,
-                        source_marketplace, source_filename
+                        order_id, 
+                        sales_channel_id, 
+                        shipping_service_id, 
+                        warehouse_id,
+                        sla_status_id, 
+                        tracking_id, 
+                        weight_kg, 
+                        handover_type, 
+                        is_dropship,
+                        time_created, 
+                        time_paid, 
+                        time_rts, 
+                        time_delivered,
+                        source_marketplace, 
+                        source_filename
                     )
                     SELECT
                         o.no_pesanan,
@@ -58,7 +69,15 @@ def run(engine, marketplace):
                         ELSE TRIM(o.opsi_pengiriman)
                     END
                     WHERE cm.sales_channel_id IS NOT NULL
-                    ON CONFLICT (order_id, sales_channel_id) DO NOTHING
+                    ON CONFLICT (order_id, sales_channel_id) DO UPDATE SET
+                        shipping_service_id = EXCLUDED.shipping_service_id,
+                        warehouse_id        = EXCLUDED.warehouse_id,
+                        sla_status_id       = EXCLUDED.sla_status_id,
+                        tracking_id         = EXCLUDED.tracking_id,
+                        weight_kg           = EXCLUDED.weight_kg,
+                        time_rts            = EXCLUDED.time_rts,
+                        time_delivered      = EXCLUDED.time_delivered,
+                        source_filename     = EXCLUDED.source_filename
                 """)
 
             elif marketplace == 'tiktok_tokopedia':
@@ -117,7 +136,17 @@ def run(engine, marketplace):
                         ON sm_wild.provider = TRIM(o.shipping_provider_name)
                         AND sm_wild.delivery_option = '_'
                     WHERE cm.sales_channel_id IS NOT NULL
-                    ON CONFLICT (order_id, sales_channel_id) DO NOTHING
+                    ON CONFLICT (order_id, sales_channel_id) DO UPDATE SET
+                        shipping_service_id = EXCLUDED.shipping_service_id,
+                        warehouse_id        = EXCLUDED.warehouse_id,
+                        sla_status_id       = EXCLUDED.sla_status_id,
+                        tracking_id         = EXCLUDED.tracking_id,
+                        package_id          = EXCLUDED.package_id,
+                        weight_kg           = EXCLUDED.weight_kg,
+                        time_rts            = EXCLUDED.time_rts,
+                        time_shipped        = EXCLUDED.time_shipped,
+                        time_delivered      = EXCLUDED.time_delivered,
+                        source_filename     = EXCLUDED.source_filename
                 """)
 
             elif marketplace == 'lazada':
@@ -151,7 +180,14 @@ def run(engine, marketplace):
                     LEFT JOIN _tmp_shipping_map sm  ON sm.provider = TRIM(o.shipping_provider)
                     WHERE cm.sales_channel_id IS NOT NULL
                     ORDER BY o.order_number, cm.sales_channel_id
-                    ON CONFLICT (order_id, sales_channel_id) DO NOTHING
+                    ON CONFLICT (order_id, sales_channel_id) DO UPDATE SET
+                        shipping_service_id  = EXCLUDED.shipping_service_id,
+                        warehouse_id         = EXCLUDED.warehouse_id,
+                        sla_status_id        = EXCLUDED.sla_status_id,
+                        tracking_id          = EXCLUDED.tracking_id,
+                        target_shipped_time  = EXCLUDED.target_shipped_time,
+                        time_delivered       = EXCLUDED.time_delivered,
+                        source_filename      = EXCLUDED.source_filename
                 """)
 
             else:
