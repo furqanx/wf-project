@@ -8,6 +8,7 @@ from src.db_config import logger
 from src.transform._maps import (
     SHOPEE_CHANNEL_MAP, TIKTOK_CHANNEL_MAP, LAZADA_CHANNEL_MAP,
     SHOPEE_SHIPPING_MAP, TIKTOK_SHIPPING_MAP, LAZADA_SHIPPING_MAP,
+    SHOPEE_WAREHOUSE_MAP, TIKTOK_WAREHOUSE_MAP, LAZADA_WAREHOUSE_MAP,
 )
 
 MP_NAME = {
@@ -65,10 +66,27 @@ def load_channel_map(conn, marketplace):
         conn.execute(text("INSERT INTO _tmp_channel_map VALUES (:nama_toko, :purchase_channel, :sales_channel_id)"), rows)
 
 
-def load_warehouse_map(conn):
+def load_warehouse_map(conn, marketplace):
     conn.execute(text("DELETE FROM _tmp_warehouse_map"))
+
     res = conn.execute(text("SELECT warehouse_name, warehouse_id FROM public.dim_warehouse"))
-    rows = [{'raw_name': r[0].lower(), 'warehouse_id': r[1]} for r in res.fetchall()]
+    
+    db_map = {
+        r[0].lower(): r[1] for r in res.fetchall()
+    }
+    alias_maps = {
+        'shopee':           SHOPEE_WAREHOUSE_MAP,
+        'tiktok_tokopedia': TIKTOK_WAREHOUSE_MAP,
+        'lazada':           LAZADA_WAREHOUSE_MAP,
+    }
+
+    rows = [{'raw_name': name.lower(), 'warehouse_id': wid} for name, wid in db_map.items()]
+
+    for alias, display_name in alias_maps.get(marketplace, {}).items():
+        wid = db_map.get(display_name.lower())
+        if wid:
+            rows.append({'raw_name': alias.lower(), 'warehouse_id': wid})
+
     if rows:
         conn.execute(text("INSERT INTO _tmp_warehouse_map VALUES (:raw_name, :warehouse_id)"), rows)
 
@@ -96,5 +114,5 @@ def setup_maps(conn, marketplace):
     """Shortcut: buat temp tables + load semua map sekaligus."""
     create_temp_tables(conn)
     load_channel_map(conn, marketplace)
-    load_warehouse_map(conn)
+    load_warehouse_map(conn, marketplace)
     load_shipping_map(conn, marketplace)
