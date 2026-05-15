@@ -57,7 +57,7 @@ _LAZADA_RETURN_STATUS = {
 
 _SHOPEE_BALANCE_TYPE = {
     'Penghasilan dari Pesanan', 'Pembayaran dengan Saldo Penjual',
-    'Penarikan Dana', 'Penyesuaian',
+    'Penarikan Dana', 'Penyesuaian', 'Pengembalian Dana atas Pesanan',
 }
 _TIKTOK_BALANCE_TYPE = {'Withdrawal', 'Earnings', 'GMV Pay Deduction'}
 _LAZADA_BALANCE_TYPE = {'Withdrawal', 'Deposit', 'Payment', 'Penalty'}

@@ -64,6 +64,7 @@ def run(engine, marketplace):
                             WHEN 'Pembayaran dengan Saldo Penjual' THEN 'outflow'
                             WHEN 'Penarikan Dana'                  THEN 'outflow'
                             WHEN 'Penyesuaian'                     THEN 'adjustment'
+                            WHEN 'Pengembalian Dana atas Pesanan'  THEN 'outflow'
                             ELSE 'adjustment'
                         END,
                         ABS(NULLIF(TRIM(r.jumlah), 'nan')::NUMERIC),
