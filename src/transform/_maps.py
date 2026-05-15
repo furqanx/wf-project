@@ -158,6 +158,8 @@ TIKTOK_WAREHOUSE_MAP = {
     'seller space x merapi organik':    'Sellerspace',
     'store n go':                       'Store n Go',
     'stor n go':                        'Store n Go',
+    'gudang surabaya':                  'Central Surabaya Fulfillment',
+    'central surabaya':                 'Central Surabaya Fulfillment',
 }
 
 LAZADA_WAREHOUSE_MAP = {
@@ -206,6 +208,7 @@ TIKTOK_SHIPPING_MAP = {
     ('Anteraja',               'Same day'):             13,
     ('Anteraja',               'Ekonomi'):              12,
     ('AnterAja-MP',            'AnterAja (Regular)'):   11,
+    ('AnterAja-MP',            'AnterAja'):             11,
     ('Gojek',                  'Instan'):               19,
     ('Gojek',                  'Same day 8 jam'):       20,
     ('Grab',                   'Instan'):               21,
@@ -214,11 +217,14 @@ TIKTOK_SHIPPING_MAP = {
     ('JNE Cargo',              'Kargo'):                3,
     ('JNE Express Standard ID','_'):                    1,
     ('JNE-MP',                 'JNE (Regular)'):        1,
+    ('JNE-MP',                 'JNE'):                  1,
     ('J&T Cargo',              'Kargo'):                6,
     ('J&T Cargo',              'Pengiriman standar'):   6,
+    ('J&T Cargo',              'Ekonomi'):              5,
     ('J&T Express',            'Pengiriman standar'):   4,
     ('J&T Express',            'Ekonomi'):              5,
     ('J&T-MP',                 'J&T (Regular)'):        4,
+    ('J&T-MP',                 'J&T'):                  4,
     ('Lion Parcel-MP',         '_'):                    26,
     ('NinjaVan Indonesia',     '_'):                    23,
     ('NinjaVan-MP',            '_'):                    23,
@@ -226,6 +232,8 @@ TIKTOK_SHIPPING_MAP = {
     ('REX',                    'Kargo'):                28,
     ('SiCepat',                'Kargo'):                10,
     ('SiCepat-MP',             'SiCepat (Regular)'):    7,
+    ('SiCepat-MP',             'SiCepat'):              7,
+    ('GoTo Logistics GTL',     'Pengiriman standar'):   31,
 }
 
 LAZADA_SHIPPING_MAP = {
