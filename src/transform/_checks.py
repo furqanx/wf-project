@@ -52,7 +52,7 @@ _TIKTOK_RETURN_TYPE  = {'Return/Refund', 'Cancel'}
 _LAZADA_RETURN_STATUS = {
     'canceled', 'returned', 'Package Returned',
     'In Transit: Returning to seller', 'Lost by 3PL',
-    'Damaged by 3PL', 'Package scrapped',
+    'Damaged by 3PL', 'Package scrapped', 'confirmed',
 }
 
 _SHOPEE_BALANCE_TYPE = {
