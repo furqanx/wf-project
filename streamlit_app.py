@@ -539,6 +539,7 @@ def render_upload_tab(engine):
     else:
         st.success(f'**Berhasil!** {total} file diproses tanpa error.')
 
+    # MIGRATE DATA FROM STAGING TO MAIN
     if sukses > 0:
         load_staging_summary.clear()
         load_timeseries.clear()
