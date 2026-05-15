@@ -138,6 +138,7 @@ SHOPEE_WAREHOUSE_MAP = {
     'seller space bo':   'Sellerspace',
     'store n go':        'Store n Go',
     'store n go 1':      'Store n Go',
+    'central sbya':      'Central Surabaya Fulfillment',
 }
 
 TIKTOK_WAREHOUSE_MAP = {
