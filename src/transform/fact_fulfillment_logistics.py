@@ -28,8 +28,7 @@ def run(engine, marketplace):
                         time_paid, 
                         time_rts, 
                         time_delivered,
-                        source_marketplace, 
-                        source_filename
+                        source_marketplace, source_filename
                     )
                         SELECT DISTINCT ON (o.no_pesanan, cm.sales_channel_id)
                             o.no_pesanan,
@@ -84,13 +83,25 @@ def run(engine, marketplace):
             elif marketplace == 'tiktok_tokopedia':
                 sql = text("""
                     INSERT INTO public.fact_fulfillment_logistics (
-                        order_id, sales_channel_id, shipping_service_id, warehouse_id,
-                        sla_status_id, tracking_id, package_id, weight_kg,
-                        distance_fee, handover_type, is_dropship,
-                        time_created, time_paid, time_rts, time_shipped, time_delivered,
+                        order_id, 
+                        sales_channel_id, 
+                        shipping_service_id, 
+                        warehouse_id,
+                        sla_status_id, 
+                        tracking_id, 
+                        package_id, 
+                        weight_kg,
+                        distance_fee, 
+                        handover_type, 
+                        is_dropship,
+                        time_created, 
+                        time_paid, 
+                        time_rts, 
+                        time_shipped, 
+                        time_delivered,
                         source_marketplace, source_filename
                     )
-                        SELECT
+                        SELECT DISTINCT ON (o.order_id, cm.sales_channel_id)
                             o.order_id,
                             cm.sales_channel_id,
                             COALESCE(sm_exact.service_id, sm_wild.service_id),
@@ -154,9 +165,17 @@ def run(engine, marketplace):
             elif marketplace == 'lazada':
                 sql = text("""
                     INSERT INTO public.fact_fulfillment_logistics (
-                        order_id, sales_channel_id, shipping_service_id, warehouse_id,
-                        sla_status_id, tracking_id, handover_type, is_dropship,
-                        time_created, target_shipped_time, time_delivered,
+                        order_id, 
+                        sales_channel_id, 
+                        shipping_service_id, 
+                        warehouse_id,
+                        sla_status_id, 
+                        tracking_id, 
+                        handover_type, 
+                        is_dropship,
+                        time_created, 
+                        target_shipped_time, 
+                        time_delivered,
                         source_marketplace, source_filename
                     )
                         SELECT DISTINCT ON (o.order_number, cm.sales_channel_id)
