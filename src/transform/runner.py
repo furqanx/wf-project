@@ -24,6 +24,11 @@ MATERIALIZED_VIEWS = [
     'public.mv_sales_offline',
     'public.mv_combined_revenue',
     'public.mv_monthly_summary',
+    # Production & Distribution planning
+    'public.mv_production_planning',
+    'public.mv_distribution_planning',
+    'public.mv_production_buffer',
+    'public.mv_distribution_buffer',
 ]
 
 

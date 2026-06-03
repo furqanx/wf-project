@@ -1173,7 +1173,80 @@ def render_monitoring_tab(engine):
     )
 
 
-# ── Tab 5: Master Partner ─────────────────────────────────────────────────────
+# ── Tab 5: Konfigurasi ────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=60)
+def load_config(_engine):
+    with _engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT key, value, description FROM public.dim_config ORDER BY key"
+        )).fetchall()
+    return {r.key: {'value': float(r.value), 'description': r.description} for r in rows}
+
+
+def _refresh_buffer_mvs(engine):
+    with engine.begin() as conn:
+        conn.execute(text("REFRESH MATERIALIZED VIEW public.mv_production_buffer"))
+        conn.execute(text("REFRESH MATERIALIZED VIEW public.mv_distribution_buffer"))
+
+
+def render_config_tab(engine):
+    st.markdown('#### Konfigurasi Parameter Sistem')
+    st.markdown(
+        '<div class="wf-context-card">'
+        'Parameter di halaman ini mempengaruhi kalkulasi <strong>buffer harian</strong> '
+        'untuk tim Produksi dan Distribusi. Perubahan akan langsung tersimpan ke database '
+        'dan materialized view buffer akan di-refresh otomatis.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    cfg = load_config(engine)
+
+    # ── Buffer Multiplier ────────────────────────────────────────────────────
+    st.markdown('<div class="wf-section-title">Buffer Harian</div>', unsafe_allow_html=True)
+
+    current_multiplier = cfg.get('buffer_multiplier', {}).get('value', 10)
+
+    col_desc, col_form = st.columns([2, 1])
+    with col_desc:
+        st.markdown(f"""
+**Buffer Multiplier** saat ini: **`{int(current_multiplier)}`**
+
+Formula buffer:
+- **Tim Produksi (kg):** Total penjualan kemarin (kg) × multiplier
+- **Tim Distribusi (pcs):** Penjualan per toko kemarin (pcs) × multiplier
+
+Nilai ini menentukan berapa hari stok cadangan yang harus disiapkan berdasarkan penjualan hari terakhir.
+        """)
+    with col_form:
+        with st.form('form_buffer_multiplier'):
+            new_multiplier = st.number_input(
+                'Nilai Baru',
+                min_value=1,
+                max_value=365,
+                value=int(current_multiplier),
+                step=1,
+                help='Angka hari cadangan. Default: 10',
+            )
+            submitted = st.form_submit_button('💾  Simpan & Refresh', use_container_width=True, type='primary')
+
+        if submitted:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "UPDATE public.dim_config SET value = :val WHERE key = 'buffer_multiplier'"
+                    ), {'val': new_multiplier})
+                with st.spinner('Refresh materialized view buffer…'):
+                    _refresh_buffer_mvs(engine)
+                load_config.clear()
+                st.success(f'Buffer multiplier diperbarui menjadi **{new_multiplier}**. MV buffer sudah di-refresh.')
+                st.rerun()
+            except Exception as e:
+                st.error(f'Gagal menyimpan: {e}')
+
+
+# ── Tab 6: Master Partner ─────────────────────────────────────────────────────
 
 PARTNER_TYPES = ['AGEN', 'DISTRIBUTOR', 'KONSIYANSI', 'COSTUMER', 'SAMPLE']
 
@@ -1316,23 +1389,13 @@ def main():
     #     '👥  Master Partner'
     # ])
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        '📤  Upload Data Sales Online', 
-        '📋  Upload Data Sales Offline', 
-        '📊  Status Data', 
-        '👥  Master Partner'
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        '📤  Upload Data Sales Online',
+        '📋  Upload Data Sales Offline',
+        '📊  Status Data',
+        '⚙️  Konfigurasi',
+        '👥  Master Partner',
     ])
-
-    # with tab1:
-    #     render_upload_tab(engine)
-    # with tab2:
-    #     render_crewdible_tab(engine)
-    # with tab3:
-    #     render_sales_offline_tab(engine)
-    # with tab4:
-    #     render_monitoring_tab(engine)
-    # with tab5:
-    #     render_master_partner_tab(engine)
 
     with tab1:
         render_upload_tab(engine)
@@ -1341,6 +1404,8 @@ def main():
     with tab3:
         render_monitoring_tab(engine)
     with tab4:
+        render_config_tab(engine)
+    with tab5:
         render_master_partner_tab(engine)
 
 
