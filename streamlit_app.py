@@ -7,6 +7,8 @@ import os
 import sys
 import tempfile
 import threading
+import json
+import html
 import pandas as pd
 import altair as alt
 import streamlit as st
@@ -54,6 +56,63 @@ html, body, [data-testid="stAppViewContainer"] {
     color: #334155;
 }
 .wf-context-card strong { color: #1a6b3a; }
+
+.wf-stage {
+    background: #ffffff;
+    border: 1px solid #dbe4ee;
+    border-left: 5px solid #64748b;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 16px 0;
+    color: #334155;
+}
+.wf-stage-ready { border-left-color: #2563eb; background: #f8fbff; }
+.wf-stage-success { border-left-color: #16a34a; background: #f7fdf9; }
+.wf-stage-warning { border-left-color: #d97706; background: #fffaf0; }
+.wf-stage-running { border-left-color: #0f766e; background: #f4fbfa; }
+.wf-stage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.wf-stage-title {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #172033;
+}
+.wf-stage-badge {
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+.wf-stage-body {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: #475569;
+}
+.wf-stage-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.wf-stage-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 4px 10px;
+}
 
 .wf-file-card {
     background: #ffffff;
@@ -215,6 +274,32 @@ def _run_transform_background(marketplace, engine):
         logging.getLogger().error(f"[TRANSFORM-BG] {marketplace}: {e}")
 
 
+def _run_transform_job_background(job_ids, marketplace, engine):
+    try:
+        run_transform(marketplace=marketplace, engine=engine)
+        with engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE staging.transform_job_log
+                SET status = 'success',
+                    finished_at = NOW(),
+                    error_message = NULL
+                WHERE job_id = ANY(:job_ids)
+            """), {'job_ids': job_ids})
+    except Exception as e:
+        logging.getLogger().error(f"[TRANSFORM-BG] {marketplace}: {e}")
+        with engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE staging.transform_job_log
+                SET status = 'failed',
+                    finished_at = NOW(),
+                    error_message = :error_message
+                WHERE job_id = ANY(:job_ids)
+            """), {
+                'job_ids': job_ids,
+                'error_message': str(e),
+            })
+
+
 def _run_crewdible_transform_background(engine):
     try:
         run_transform_crewdible(engine=engine)
@@ -230,9 +315,18 @@ class StreamlitLogHandler(logging.Handler):
 
 def attach_streamlit_handler():
     root = logging.getLogger()
-    if any(isinstance(h, StreamlitLogHandler) for h in root.handlers):
+    stale_handlers = [
+        h for h in root.handlers
+        if getattr(h, '_wf_streamlit_handler', False)
+        or h.__class__.__name__ == 'StreamlitLogHandler'
+    ]
+    for h in stale_handlers[1:]:
+        root.removeHandler(h)
+        h.close()
+    if stale_handlers:
         return
     h = StreamlitLogHandler()
+    h._wf_streamlit_handler = True
     h.setFormatter(logging.Formatter('%(asctime)s  %(levelname)-8s  %(message)s', '%H:%M:%S'))
     root.addHandler(h)
 
@@ -364,6 +458,166 @@ def render_stat_row(counts):
     )
 
 
+def render_stage_panel(title, status, body, variant='ready', chips=None):
+    chip_html = ''
+    if chips:
+        chip_html = (
+            '<div class="wf-stage-meta">'
+            + ''.join(f'<span class="wf-stage-chip">{html.escape(str(chip))}</span>' for chip in chips)
+            + '</div>'
+        )
+    st.markdown(
+        f'''
+        <div class="wf-stage wf-stage-{variant}">
+            <div class="wf-stage-head">
+                <div class="wf-stage-title">{html.escape(title)}</div>
+                <span class="wf-stage-badge">{html.escape(status)}</span>
+            </div>
+            <div class="wf-stage-body">{html.escape(body)}</div>
+            {chip_html}
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
+def _normalize_source_filenames(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def get_sales_online_transform_jobs(engine, statuses):
+    with engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT job_id, marketplace, fase, source_filenames, created_at
+            FROM staging.transform_job_log
+            WHERE job_type = 'sales_online'
+              AND status = ANY(:statuses)
+            ORDER BY created_at DESC
+        """), {'statuses': statuses})
+        return [
+            {
+                'job_id': r.job_id,
+                'marketplace': r.marketplace,
+                'fase': r.fase,
+                'source_filenames': _normalize_source_filenames(r.source_filenames),
+                'created_at': r.created_at,
+            }
+            for r in result
+        ]
+
+
+def create_sales_online_transform_job(engine, marketplace, fase, filenames):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO staging.transform_job_log
+                (job_type, marketplace, fase, status, source_filenames)
+            VALUES
+                ('sales_online', :marketplace, :fase, 'pending', CAST(:source_filenames AS jsonb))
+        """), {
+            'marketplace': marketplace,
+            'fase': fase,
+            'source_filenames': json.dumps(filenames),
+        })
+
+
+def render_sales_online_transform_control(engine, key_suffix='main'):
+    running_key = 'sales_online_transform_running'
+    pending_jobs = get_sales_online_transform_jobs(engine, ['pending'])
+    running_jobs = get_sales_online_transform_jobs(engine, ['running'])
+    if not running_jobs:
+        st.session_state[running_key] = False
+
+    if not pending_jobs and not running_jobs:
+        return
+
+    st.markdown(
+        '<div class="wf-section-title">Migrasi Data ke Tabel Utama</div>',
+        unsafe_allow_html=True,
+    )
+
+    if running_jobs:
+        running_marketplaces = sorted({job['marketplace'].upper() for job in running_jobs})
+        render_stage_panel(
+            title='4. Migrasi ke Tabel Utama',
+            status='Sedang berjalan',
+            body=(
+                'Migrasi sedang memindahkan data dari staging ke tabel utama. '
+                'Tombol akan aktif lagi jika ada upload staging baru.'
+            ),
+            variant='running',
+            chips=[f"Marketplace: {', '.join(running_marketplaces)}"],
+        )
+        return
+
+    jobs_by_marketplace = {}
+    for job in pending_jobs:
+        jobs_by_marketplace.setdefault(job['marketplace'], []).append(job)
+
+    for marketplace, marketplace_jobs in jobs_by_marketplace.items():
+        files = []
+        for job in marketplace_jobs:
+            files.extend(job['source_filenames'])
+        files = list(dict.fromkeys(files))
+        marketplace_label = marketplace.upper()
+
+        render_stage_panel(
+            title='4. Migrasi ke Tabel Utama',
+            status='Perlu tindakan',
+            body=(
+                'Data sudah masuk staging, tetapi belum masuk tabel utama dan dashboard. '
+                'Jalankan migrasi setelah batch file dipastikan benar.'
+            ),
+            variant='warning',
+            chips=[f'Marketplace: {marketplace_label}', f'{len(marketplace_jobs)} batch pending'],
+        )
+
+        if files:
+            with st.expander(f'{len(files)} file staging menunggu migrasi ({marketplace_label})', expanded=False):
+                st.code('\n'.join(files), language=None)
+
+        run_transform_button = st.button(
+            f'Migrasikan {marketplace_label} ke Tabel Utama',
+            type='primary',
+            use_container_width=True,
+            key=f'run_sales_online_transform_button_{key_suffix}_{marketplace}',
+        )
+
+        if run_transform_button:
+            job_ids = [job['job_id'] for job in marketplace_jobs]
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE staging.transform_job_log
+                    SET status = 'running',
+                        started_at = NOW(),
+                        error_message = NULL
+                    WHERE job_id = ANY(:job_ids)
+                """), {'job_ids': job_ids})
+            st.session_state[running_key] = True
+            st.session_state['sales_online_transform_running_marketplace'] = marketplace
+            load_staging_summary.clear()
+            load_timeseries.clear()
+            threading.Thread(
+                target=_run_transform_job_background,
+                args=(job_ids, marketplace, engine),
+                daemon=True,
+            ).start()
+            render_stage_panel(
+                title='4. Migrasi ke Tabel Utama',
+                status='Dimulai',
+                body='Migrasi mulai berjalan di background. Status terbaru akan terbaca dari database.',
+                variant='running',
+                chips=[f'Marketplace: {marketplace_label}'],
+            )
+
+
 # ── Tab 1: Upload ──────────────────────────────────────────────────────────────
 def render_upload_tab(engine):
     with st.sidebar:
@@ -389,14 +643,16 @@ def render_upload_tab(engine):
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        f'<div class="wf-context-card">'
-        f'Upload file <strong>{fase}</strong> dari '
-        f'<strong>{MARKETPLACE_ICON.get(marketplace_label,"")} {marketplace_label}</strong>'
-        f' &mdash; Toko: <strong>{toko}</strong>. '
-        f'Pastikan file sudah sesuai sebelum menekan tombol proses.'
-        f'</div>',
-        unsafe_allow_html=True,
+    render_stage_panel(
+        title='1. Target Upload',
+        status='Dipilih',
+        body='File yang diunggah akan dibaca sesuai target berikut.',
+        variant='ready',
+        chips=[
+            f'Fase: {fase}',
+            f'Marketplace: {marketplace_label}',
+            f'Toko: {toko}',
+        ],
     )
 
     uploaded_files = st.file_uploader(
@@ -414,6 +670,7 @@ def render_upload_tab(engine):
             "</div>",
             unsafe_allow_html=True,
         )
+        render_sales_online_transform_control(engine, key_suffix='top')
         return
 
     tmp_dir = tempfile.mkdtemp()
@@ -433,6 +690,21 @@ def render_upload_tab(engine):
     for _, s, _ in file_statuses:
         counts[s['status']] = counts.get(s['status'], 0) + 1
 
+    render_stage_panel(
+        title='2. Pemeriksaan File',
+        status='Selesai dicek',
+        body='File sudah dianalisis terhadap database. Data belum masuk staging sebelum tombol tahap berikutnya ditekan.',
+        variant='ready',
+        chips=[
+            f'{len(file_statuses)} file',
+            f"{counts.get('new', 0)} baru",
+            f"{counts.get('fully_loaded', 0)} sudah dimuat",
+            f"{counts.get('partial', 0)} sebagian",
+            f"{counts.get('anomaly', 0)} anomali",
+        ],
+    )
+
+    # Tampilan RINGKASAN
     st.markdown(f'<div class="wf-section-title">Ringkasan — {len(file_statuses)} file</div>',
                 unsafe_allow_html=True)
     st.markdown(render_stat_row(counts), unsafe_allow_html=True)
@@ -443,30 +715,6 @@ def render_upload_tab(engine):
                 for uf, s, _ in file_statuses),
         unsafe_allow_html=True,
     )
-
-    # ── Cek duplikasi order ID ──────────────────────────────────────────────────
-    st.markdown('<div class="wf-section-title">Cek Duplikasi Order ID</div>', unsafe_allow_html=True)
-    dup_results = {}
-    with st.spinner('Memeriksa duplikasi order ID...'):
-        for uf, _, tmp_path in file_statuses:
-            dup = check_duplicate_order_ids(tmp_path, fase, marketplace, engine)
-            dup_results[uf.name] = dup
-
-    has_duplicates = any(d['already_in_db'] > 0 for d in dup_results.values())
-    for fname, dup in dup_results.items():
-        if dup['total_in_file'] == 0:
-            continue
-        if dup['already_in_db'] > 0:
-            st.warning(
-                f"**{fname}** — "
-                f"{dup['already_in_db']} dari {dup['total_in_file']} order ID sudah ada di database. "
-                f"({dup['new']} baru)"
-            )
-            if dup['duplicate_ids']:
-                with st.expander(f"Lihat sample duplikat ({fname})"):
-                    st.code('\n'.join(dup['duplicate_ids']))
-        else:
-            st.success(f"**{fname}** — Semua {dup['total_in_file']} order ID baru.")
 
     anomaly_files = [uf.name for uf, s, _ in file_statuses if s['status'] == 'anomaly']
     partial_files  = [uf.name for uf, s, _ in file_statuses if s['status'] == 'partial']
@@ -484,10 +732,20 @@ def render_upload_tab(engine):
         )
 
     to_process    = [item for item in file_statuses
-                     if not (skip_loaded and item[1]['status'] == 'fully_loaded')]
+                    if not (skip_loaded and item[1]['status'] == 'fully_loaded')]
     skipped_count = len(file_statuses) - len(to_process)
 
     st.markdown('<hr>', unsafe_allow_html=True)
+    render_stage_panel(
+        title='3. Input ke Staging',
+        status='Siap diproses' if to_process else 'Tidak ada file baru',
+        body=(
+            'Tahap ini hanya memasukkan file ke staging. '
+            'Data belum masuk tabel utama atau dashboard sampai tahap migrasi dijalankan.'
+        ),
+        variant='ready' if to_process else 'success',
+        chips=[f'{len(to_process)} file akan masuk staging'],
+    )
     col_info, col_btn = st.columns([4, 1])
     with col_info:
         if not to_process:
@@ -497,23 +755,27 @@ def render_upload_tab(engine):
         else:
             st.caption(f'**{len(to_process)} file akan diproses**')
     with col_btn:
+        # PROCESS BUTTON
         run_button = st.button(
-            f'▶  Proses  {len(to_process)}  File',
+            f'Masukkan {len(to_process)} File ke Staging',
             type='primary',
             use_container_width=True,
             disabled=(not to_process),
         )
 
     if not to_process or not run_button:
+        render_sales_online_transform_control(engine, key_suffix='after_check')
         return
 
+    ############################# INSERTION PROCESS #############################
+
     st.session_state['log_lines'] = []
-    st.markdown('<div class="wf-section-title">Progress</div>', unsafe_allow_html=True)
+    st.markdown('<div class="wf-section-title">Progress Input ke Staging</div>', unsafe_allow_html=True)
     progress_bar  = st.progress(0, text='Memulai…')
     log_container = st.empty()
     total, errors = len(to_process), []
 
-    for idx, (uf, _, tmp_path) in enumerate(to_process):
+    for idx, (uf, _, tmp_path) in enumerate(to_process): # debugging to_process ini
         progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
         try:
             if fase == 'ORDER':
@@ -526,171 +788,173 @@ def render_upload_tab(engine):
             logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
             errors.append(uf.name)
 
-        log_lines = st.session_state.get('log_lines', [])
-        log_container.text_area('Log', value='\n'.join(log_lines[-200:]),
-                                height=280, key=f'log_{idx}', label_visibility='collapsed')
-
     progress_bar.progress(1.0, text='Selesai!')
-    st.markdown('<hr>', unsafe_allow_html=True)
+
+    final_logs = st.session_state.get('log_lines', [])
+    if final_logs:
+        with log_container.container():
+            with st.expander('📋 Lihat Log Lengkap', expanded=False):
+                st.code('\n'.join(final_logs), language=None)
 
     sukses = total - len(errors)
     if errors:
         st.error(f'**Proses selesai dengan {len(errors)} error.**  \n' + '  \n'.join(f'• `{f}`' for f in errors))
     else:
-        st.success(f'**Berhasil!** {total} file diproses tanpa error.')
-
-    # MIGRATE DATA FROM STAGING TO MAIN
-    if sukses > 0:
-        load_staging_summary.clear()
-        load_timeseries.clear()
-        threading.Thread(
-            target=_run_transform_background,
-            args=(marketplace, engine),
-            daemon=True,
-        ).start()
-        st.info(f'🔄 Transform berjalan di background ({sukses} file berhasil dimuat). Notifikasi dikirim via Telegram setelah selesai.')
-
-    final_logs = st.session_state.get('log_lines', [])
-    if final_logs:
-        with st.expander('📋 Lihat Log Lengkap', expanded=False):
-            st.code('\n'.join(final_logs), language=None)
-
-
-# ── Tab 2: Crewdible ───────────────────────────────────────────────────────────
-def _crewdible_rows_in_db(filename, engine):
-    try:
-        with engine.connect() as conn:
-            return conn.execute(
-                text("SELECT COUNT(*) FROM staging.stg_crewdible WHERE source_filename = :fn"),
-                {"fn": filename}
-            ).scalar()
-    except Exception:
-        return 0
-
-
-def render_crewdible_tab(engine):
-    st.markdown(
-        '<div class="wf-context-card">'
-        'Upload file transaksi <strong>Crewdible</strong> (3PL fulfillment). '
-        'Mendukung format <code>.xlsx</code> standar maupun <code>.xls</code> dari ekspor Crewdible.'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    uploaded_files = st.file_uploader(
-        'Pilih satu atau beberapa file Crewdible (.xlsx / .xls)',
-        type=['xlsx', 'xls'],
-        accept_multiple_files=True,
-        key='crewdible_uploader',
-    )
-
-    if not uploaded_files:
-        st.markdown(
-            "<div style='text-align:center;padding:40px 0;color:#94a3b8;font-size:0.9rem;'>"
-            "📂&nbsp; Belum ada file yang dipilih.<br>"
-            "<span style='font-size:0.8rem;'>Klik tombol di atas atau seret file ke sini.</span>"
-            "</div>",
-            unsafe_allow_html=True,
+        render_stage_panel(
+            title='3. Input ke Staging',
+            status='Berhasil',
+            body='File berhasil dimasukkan ke staging. Lanjutkan ke migrasi jika data sudah siap masuk tabel utama.',
+            variant='success',
+            chips=[f'{total} file masuk staging'],
         )
-        return
-
-    tmp_dir = tempfile.mkdtemp()
-    file_infos = []
-    with st.spinner('Memeriksa status file terhadap database…'):
-        for uf in uploaded_files:
-            tmp_path = os.path.join(tmp_dir, uf.name)
-            with open(tmp_path, 'wb') as f:
-                f.write(uf.getbuffer())
-            rows_in_db = _crewdible_rows_in_db(uf.name, engine)
-            status = 'fully_loaded' if rows_in_db > 0 else 'new'
-            file_infos.append((uf, tmp_path, rows_in_db, status))
-
-    st.markdown(f'<div class="wf-section-title">Status File — {len(file_infos)} file</div>',
-                unsafe_allow_html=True)
-    cards_html = ''
-    for uf, _, rows_in_db, status in file_infos:
-        badge = render_badge(status)
-        db_info = (
-            f'<span style="font-size:0.78rem;color:#64748b;white-space:nowrap;">'
-            f'DB&nbsp;<b style="color:#1e293b">{rows_in_db:,}</b>&nbsp;baris'
-            f'</span>' if rows_in_db > 0 else ''
-        )
-        cards_html += (
-            f'<div class="wf-file-card">'
-            f'<span style="font-size:1.1rem;">📦</span>'
-            f'<span class="wf-filename">{uf.name}</span>'
-            f'{db_info}{badge}'
-            f'</div>'
-        )
-    st.markdown(cards_html, unsafe_allow_html=True)
-
-    skip_loaded = st.checkbox('Lewati file yang sudah dimuat', value=True, key='crewdible_skip')
-    to_process = [item for item in file_infos
-                  if not (skip_loaded and item[3] == 'fully_loaded')]
-    skipped_count = len(file_infos) - len(to_process)
-
-    st.markdown('<hr>', unsafe_allow_html=True)
-    col_info, col_btn = st.columns([4, 1])
-    with col_info:
-        if not to_process:
-            st.success('Semua file sudah dimuat. Tidak ada yang perlu diproses.')
-        elif skipped_count > 0:
-            st.caption(f'{skipped_count} file dilewati · **{len(to_process)} file akan diproses**')
-        else:
-            st.caption(f'**{len(to_process)} file akan diproses**')
-    with col_btn:
-        run_button = st.button(
-            f'▶  Proses  {len(to_process)}  File',
-            type='primary',
-            use_container_width=True,
-            disabled=(not to_process),
-            key='crewdible_run',
-        )
-
-    if not to_process or not run_button:
-        return
-
-    st.session_state['log_lines'] = []
-    st.markdown('<div class="wf-section-title">Progress</div>', unsafe_allow_html=True)
-    progress_bar  = st.progress(0, text='Memulai…')
-    log_container = st.empty()
-    total, errors = len(to_process), []
-
-    for idx, (uf, tmp_path, _, _) in enumerate(to_process):
-        progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
-        try:
-            process_crewdible_file(tmp_path, engine)
-        except Exception as e:
-            logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
-            errors.append(uf.name)
-
-        log_lines = st.session_state.get('log_lines', [])
-        log_container.text_area('Log', value='\n'.join(log_lines[-200:]),
-                                height=280, key=f'crewdible_log_{idx}',
-                                label_visibility='collapsed')
-
-    progress_bar.progress(1.0, text='Selesai!')
-    st.markdown('<hr>', unsafe_allow_html=True)
-
-    sukses = total - len(errors)
-    if errors:
-        st.error(f'**Proses selesai dengan {len(errors)} error.**  \n'
-                 + '  \n'.join(f'• `{f}`' for f in errors))
-    else:
-        st.success(f'**Berhasil!** {total} file diproses tanpa error.')
 
     if sukses > 0:
-        threading.Thread(
-            target=_run_crewdible_transform_background,
-            args=(engine,),
-            daemon=True,
-        ).start()
-        st.info(f'🔄 Transform Crewdible berjalan di background ({sukses} file berhasil dimuat). Notifikasi dikirim via Telegram setelah selesai.')
+        st.session_state['sales_online_transform_running'] = False
+        create_sales_online_transform_job(
+            engine=engine,
+            marketplace=marketplace,
+            fase=fase,
+            filenames=[uf.name for uf, _, _ in to_process],
+        )
+        st.markdown('<hr>', unsafe_allow_html=True)
+        render_sales_online_transform_control(engine, key_suffix='after_upload')
 
-    final_logs = st.session_state.get('log_lines', [])
-    if final_logs:
-        with st.expander('📋 Lihat Log Lengkap', expanded=False):
-            st.code('\n'.join(final_logs), language=None)
+
+# # ── Tab 2: Crewdible ───────────────────────────────────────────────────────────
+# def _crewdible_rows_in_db(filename, engine):
+#     try:
+#         with engine.connect() as conn:
+#             return conn.execute(
+#                 text("SELECT COUNT(*) FROM staging.stg_crewdible WHERE source_filename = :fn"),
+#                 {"fn": filename}
+#             ).scalar()
+#     except Exception:
+#         return 0
+
+
+# def render_crewdible_tab(engine):
+#     st.markdown(
+#         '<div class="wf-context-card">'
+#         'Upload file transaksi <strong>Crewdible</strong> (3PL fulfillment). '
+#         'Mendukung format <code>.xlsx</code> standar maupun <code>.xls</code> dari ekspor Crewdible.'
+#         '</div>',
+#         unsafe_allow_html=True,
+#     )
+
+#     uploaded_files = st.file_uploader(
+#         'Pilih satu atau beberapa file Crewdible (.xlsx / .xls)',
+#         type=['xlsx', 'xls'],
+#         accept_multiple_files=True,
+#         key='crewdible_uploader',
+#     )
+
+#     if not uploaded_files:
+#         st.markdown(
+#             "<div style='text-align:center;padding:40px 0;color:#94a3b8;font-size:0.9rem;'>"
+#             "📂&nbsp; Belum ada file yang dipilih.<br>"
+#             "<span style='font-size:0.8rem;'>Klik tombol di atas atau seret file ke sini.</span>"
+#             "</div>",
+#             unsafe_allow_html=True,
+#         )
+#         return
+
+#     tmp_dir = tempfile.mkdtemp()
+#     file_infos = []
+#     with st.spinner('Memeriksa status file terhadap database…'):
+#         for uf in uploaded_files:
+#             tmp_path = os.path.join(tmp_dir, uf.name)
+#             with open(tmp_path, 'wb') as f:
+#                 f.write(uf.getbuffer())
+#             rows_in_db = _crewdible_rows_in_db(uf.name, engine)
+#             status = 'fully_loaded' if rows_in_db > 0 else 'new'
+#             file_infos.append((uf, tmp_path, rows_in_db, status))
+
+#     st.markdown(f'<div class="wf-section-title">Status File — {len(file_infos)} file</div>',
+#                 unsafe_allow_html=True)
+#     cards_html = ''
+#     for uf, _, rows_in_db, status in file_infos:
+#         badge = render_badge(status)
+#         db_info = (
+#             f'<span style="font-size:0.78rem;color:#64748b;white-space:nowrap;">'
+#             f'DB&nbsp;<b style="color:#1e293b">{rows_in_db:,}</b>&nbsp;baris'
+#             f'</span>' if rows_in_db > 0 else ''
+#         )
+#         cards_html += (
+#             f'<div class="wf-file-card">'
+#             f'<span style="font-size:1.1rem;">📦</span>'
+#             f'<span class="wf-filename">{uf.name}</span>'
+#             f'{db_info}{badge}'
+#             f'</div>'
+#         )
+#     st.markdown(cards_html, unsafe_allow_html=True)
+
+#     skip_loaded = st.checkbox('Lewati file yang sudah dimuat', value=True, key='crewdible_skip')
+#     to_process = [item for item in file_infos
+#                   if not (skip_loaded and item[3] == 'fully_loaded')]
+#     skipped_count = len(file_infos) - len(to_process)
+
+#     st.markdown('<hr>', unsafe_allow_html=True)
+#     col_info, col_btn = st.columns([4, 1])
+#     with col_info:
+#         if not to_process:
+#             st.success('Semua file sudah dimuat. Tidak ada yang perlu diproses.')
+#         elif skipped_count > 0:
+#             st.caption(f'{skipped_count} file dilewati · **{len(to_process)} file akan diproses**')
+#         else:
+#             st.caption(f'**{len(to_process)} file akan diproses**')
+#     with col_btn:
+#         run_button = st.button(
+#             f'▶  Proses  {len(to_process)}  File',
+#             type='primary',
+#             use_container_width=True,
+#             disabled=(not to_process),
+#             key='crewdible_run',
+#         )
+
+#     if not to_process or not run_button:
+#         return
+
+#     st.session_state['log_lines'] = []
+#     st.markdown('<div class="wf-section-title">Progress</div>', unsafe_allow_html=True)
+#     progress_bar  = st.progress(0, text='Memulai…')
+#     log_container = st.empty()
+#     total, errors = len(to_process), []
+
+#     for idx, (uf, tmp_path, _, _) in enumerate(to_process):
+#         progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
+#         try:
+#             process_crewdible_file(tmp_path, engine)
+#         except Exception as e:
+#             logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
+#             errors.append(uf.name)
+
+#         log_lines = st.session_state.get('log_lines', [])
+#         log_container.text_area('Log', value='\n'.join(log_lines[-200:]),
+#                                 height=280, key=f'crewdible_log_{idx}',
+#                                 label_visibility='collapsed')
+
+#     progress_bar.progress(1.0, text='Selesai!')
+#     st.markdown('<hr>', unsafe_allow_html=True)
+
+#     sukses = total - len(errors)
+#     if errors:
+#         st.error(f'**Proses selesai dengan {len(errors)} error.**  \n'
+#                  + '  \n'.join(f'• `{f}`' for f in errors))
+#     else:
+#         st.success(f'**Berhasil!** {total} file diproses tanpa error.')
+
+#     if sukses > 0:
+#         threading.Thread(
+#             target=_run_crewdible_transform_background,
+#             args=(engine,),
+#             daemon=True,
+#         ).start()
+#         st.info(f'🔄 Transform Crewdible berjalan di background ({sukses} file berhasil dimuat). Notifikasi dikirim via Telegram setelah selesai.')
+
+#     final_logs = st.session_state.get('log_lines', [])
+#     if final_logs:
+#         with st.expander('📋 Lihat Log Lengkap', expanded=False):
+#             st.code('\n'.join(final_logs), language=None)
 
 
 # ── Tab 3: Penjualan Offline ───────────────────────────────────────────────────
