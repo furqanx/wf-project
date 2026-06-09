@@ -106,8 +106,7 @@ def run(engine, marketplace):
                         WHERE cm.sales_channel_id IS NOT NULL
                         AND dp.product_id IS NOT NULL
                         ORDER BY o.no_pesanan, dp.product_id, cm.sales_channel_id, o.uploaded_at DESC NULLS LAST
-                    ON CONFLICT (order_id, product_id, sales_channel_id)
-                        WHERE product_id IS NOT NULL
+                    ON CONFLICT (order_id, product_id, sales_channel_id) WHERE product_id IS NOT NULL
                     DO UPDATE SET
                         order_status_id      = COALESCE(EXCLUDED.order_status_id,      fact_sales_online.order_status_id),
                         qty_returned         = COALESCE(EXCLUDED.qty_returned,         fact_sales_online.qty_returned),
@@ -205,11 +204,9 @@ def run(engine, marketplace):
                             dsa.sku_code)
                         LEFT JOIN public.dim_customer dc ON dc.marketplace_id = 5 AND dc.username = o.buyer_username
                         LEFT JOIN public.dim_sales_channel dsc ON dsc.sales_channel_id = cm.sales_channel_id
-                        WHERE cm.sales_channel_id IS NOT NULL
-                        AND dp.product_id IS NOT NULL
+                        WHERE cm.sales_channel_id IS NOT NULL AND dp.product_id IS NOT NULL
                         ORDER BY o.order_id, dp.product_id, cm.sales_channel_id, o.uploaded_at DESC NULLS LAST
-                    ON CONFLICT (order_id, product_id, sales_channel_id)
-                        WHERE product_id IS NOT NULL
+                    ON CONFLICT (order_id, product_id, sales_channel_id) WHERE product_id IS NOT NULL
                     DO UPDATE SET
                         order_status_id      = COALESCE(EXCLUDED.order_status_id,      fact_sales_online.order_status_id),
                         qty_returned         = COALESCE(EXCLUDED.qty_returned,         fact_sales_online.qty_returned),
@@ -314,11 +311,9 @@ def run(engine, marketplace):
                             dsa.sku_code)
                         LEFT JOIN public.dim_customer dc ON dc.marketplace_id = 4 AND dc.username = o.customer_name
                         LEFT JOIN public.dim_sales_channel dsc ON dsc.sales_channel_id = cm.sales_channel_id
-                        WHERE cm.sales_channel_id IS NOT NULL
-                        AND dp.product_id IS NOT NULL
+                        WHERE cm.sales_channel_id IS NOT NULL AND dp.product_id IS NOT NULL
                         ORDER BY o.order_number, dp.product_id, cm.sales_channel_id, o.uploaded_at DESC NULLS LAST
-                    ON CONFLICT (order_id, product_id, sales_channel_id)
-                        WHERE product_id IS NOT NULL
+                    ON CONFLICT (order_id, product_id, sales_channel_id) WHERE product_id IS NOT NULL
                     DO UPDATE SET
                         order_status_id      = COALESCE(EXCLUDED.order_status_id,      fact_sales_online.order_status_id),
                         qty_returned         = COALESCE(EXCLUDED.qty_returned,         fact_sales_online.qty_returned),
