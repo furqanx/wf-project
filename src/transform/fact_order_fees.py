@@ -11,12 +11,16 @@ from src.transform._maps import (
 )
 
 
+# Memberi warning jika tabel staging format wide punya kolom numerik bukan nol
+# yang belum dimapping sebagai fee dan belum diklasifikasikan sebagai non-fee.
 def _warn_unmapped_wide_cols(conn, table_name, mapped_fee_cols, non_fee_cols, label):
-    rows = conn.execute(text("""
+    rows = conn.execute(
+    text("""
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'staging' AND table_name = :tname
         ORDER BY ordinal_position
-    """), {'tname': table_name}).fetchall()
+    """), 
+    {'tname': table_name}).fetchall()
 
     excluded = set(mapped_fee_cols) | set(non_fee_cols)
     unmapped = [r[0] for r in rows if r[0] not in excluded]
@@ -25,9 +29,9 @@ def _warn_unmapped_wide_cols(conn, table_name, mapped_fee_cols, non_fee_cols, la
             cnt = conn.execute(text(f"""
                 SELECT COUNT(*) FROM staging."{table_name}"
                 WHERE NULLIF(TRIM(CAST("{col}" AS TEXT)), '') IS NOT NULL
-                  AND NULLIF(TRIM(CAST("{col}" AS TEXT)), '') <> 'nan'
-                  AND TRIM(CAST("{col}" AS TEXT)) ~ '^-?[0-9]+(\\.[0-9]+)?$'
-                  AND TRIM(CAST("{col}" AS TEXT))::NUMERIC <> 0
+                    AND NULLIF(TRIM(CAST("{col}" AS TEXT)), '') <> 'nan'
+                    AND TRIM(CAST("{col}" AS TEXT)) ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                    AND TRIM(CAST("{col}" AS TEXT))::NUMERIC <> 0
             """)).scalar() or 0
         except Exception:
             cnt = 0
@@ -38,6 +42,8 @@ def _warn_unmapped_wide_cols(conn, table_name, mapped_fee_cols, non_fee_cols, la
             )
 
 
+# Memberi warning jika nama fee dari tabel staging format narrow tidak ditemukan
+# di dim_fee_type, sehingga baris fee tersebut akan dilewati oleh transform.
 def _warn_unmapped_narrow_fees(conn, marketplace, label):
     if marketplace == 'shopee':
         sql = text("""
@@ -46,8 +52,8 @@ def _warn_unmapped_narrow_fees(conn, marketplace, label):
             LEFT JOIN public.dim_fee_type ft
                 ON ft.fee_name = TRIM(o.tipe_penyesuaian_deskripsi) AND ft.marketplace_name = 'Shopee'
             WHERE ft.fee_type_id IS NULL
-              AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
-              AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
+                AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
+                AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
             GROUP BY 1 ORDER BY cnt DESC
         """)
     elif marketplace == 'lazada':
@@ -57,8 +63,8 @@ def _warn_unmapped_narrow_fees(conn, marketplace, label):
             LEFT JOIN public.dim_fee_type ft
                 ON ft.fee_name = TRIM(o.nama_biaya) AND ft.marketplace_name = 'Lazada'
             WHERE ft.fee_type_id IS NULL
-              AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan') IS NOT NULL
-              AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC <> 0
+                AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan') IS NOT NULL
+                AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC <> 0
             GROUP BY 1 ORDER BY cnt DESC
         """)
     else:
@@ -70,6 +76,8 @@ def _warn_unmapped_narrow_fees(conn, marketplace, label):
         )
 
 
+# Memastikan tabel orphan tersedia untuk menyimpan baris fee yang belum aman
+# masuk ke fact_order_fees karena tidak memiliki business key yang dapat dipakai.
 def _ensure_stg_fee_orphan(conn):
     conn.execute(text("""
         CREATE TABLE IF NOT EXISTS staging.stg_fee_orphan (
@@ -88,22 +96,24 @@ def _ensure_stg_fee_orphan(conn):
     """))
 
 
+# Menyimpan baris Shopee adjustment yang memiliki nilai biaya tetapi tidak punya
+# order ID terhubung, agar bisa direview dan tidak hilang diam-diam.
 def _save_shopee_adj_orphans(conn):
     result = conn.execute(text("""
         INSERT INTO staging.stg_fee_orphan
             (source, fee_name, fee_amount, reason, raw_reference, nama_toko, source_filename)
-        SELECT
-            'shopee_adj',
-            TRIM(o.tipe_penyesuaian_deskripsi),
-            ABS(NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC),
-            'no_order_id',
-            TRIM(o.no),
-            TRIM(o.nama_toko),
-            o.source_filename
-        FROM staging.stg_shopee_income_adjustment o
-        WHERE NULLIF(TRIM(o.no_pesanan_terhubung),'nan') IS NULL
-          AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
-          AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
+            SELECT
+                'shopee_adj',
+                TRIM(o.tipe_penyesuaian_deskripsi),
+                ABS(NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC),
+                'no_order_id',
+                TRIM(o.no),
+                TRIM(o.nama_toko),
+                o.source_filename
+            FROM staging.stg_shopee_income_adjustment o
+            WHERE NULLIF(TRIM(o.no_pesanan_terhubung),'nan') IS NULL
+                AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
+                AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
         ON CONFLICT (source, raw_reference, source_filename) DO NOTHING
     """))
     if result.rowcount > 0:
@@ -124,35 +134,46 @@ def run(engine, marketplace):
                     f"({fid}, NULLIF(NULLIF(TRIM(o.{col}), 'nan'), '')::NUMERIC)"
                     for col, fid in TIKTOK_INCOME_FEE_COLS.items()
                 )
+                
                 result = conn.execute(text(f"""
                     INSERT INTO public.fact_order_fees (
                         order_id, fee_type_id, sales_channel_id,
                         fee_amount, source_marketplace, source_filename
                     )
-                    SELECT sub.order_id, sub.fee_type_id, sub.sales_channel_id,
-                           SUM(ABS(sub.fee_value)), sub.source_marketplace, MIN(sub.source_filename)
+                    SELECT DISTINCT ON (sub.order_id, sub.fee_type_id, sub.sales_channel_id)
+                        sub.order_id,
+                        sub.fee_type_id,
+                        sub.sales_channel_id,
+                        sub.fee_amount,
+                        sub.source_marketplace,
+                        sub.source_filename
                     FROM (
                         SELECT
                             o.order_adjustment_id AS order_id,
                             cm.sales_channel_id,
                             u.fee_type_id,
-                            u.fee_value,
+                            SUM(ABS(u.fee_value)) AS fee_amount,
                             'tiktok_tokopedia' AS source_marketplace,
-                            o.source_filename
+                            o.source_filename,
+                            o.uploaded_at
                         FROM staging.stg_tiktok_tokopedia_income o
                         LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
                         CROSS JOIN LATERAL (VALUES {fee_values}) AS u(fee_type_id, fee_value)
                         WHERE cm.sales_channel_id IS NOT NULL
-                          AND o.type = 'Order'
-                          AND NULLIF(TRIM(o.order_adjustment_id),'nan') IS NOT NULL
-                          AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                            AND o.type = 'Order'
+                            AND NULLIF(TRIM(o.order_adjustment_id),'nan') IS NOT NULL
+                            AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                        GROUP BY 1, 2, 3, 5, 6, 7
                     ) sub
-                    GROUP BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.source_marketplace, sub.source_filename
-                    ON CONFLICT (order_id, fee_type_id, sales_channel_id) DO NOTHING
+                    ORDER BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.uploaded_at DESC NULLS LAST
+                    ON CONFLICT (order_id, fee_type_id, sales_channel_id)
+                    DO UPDATE SET
+                        fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
+                        source_filename = EXCLUDED.source_filename
                 """))
+                
                 logger.info(f"✅ fact_order_fees (tiktok_tokopedia): {result.rowcount} baris")
-                _warn_unmapped_wide_cols(conn, 'stg_tiktok_tokopedia_income',
-                                         TIKTOK_INCOME_FEE_COLS, TIKTOK_NON_FEE_COLS, 'TikTok')
+                _warn_unmapped_wide_cols(conn, 'stg_tiktok_tokopedia_income', TIKTOK_INCOME_FEE_COLS, TIKTOK_NON_FEE_COLS, 'TikTok')
 
             elif marketplace == 'shopee':
                 main_fee_values = ",\n                            ".join(
@@ -166,25 +187,35 @@ def run(engine, marketplace):
                         order_id, fee_type_id, sales_channel_id,
                         fee_amount, source_marketplace, source_filename
                     )
-                    SELECT sub.order_id, sub.fee_type_id, sub.sales_channel_id,
-                           SUM(ABS(sub.fee_value)), sub.source_marketplace, MIN(sub.source_filename)
+                    SELECT DISTINCT ON (sub.order_id, sub.fee_type_id, sub.sales_channel_id)
+                        sub.order_id,
+                        sub.fee_type_id,
+                        sub.sales_channel_id,
+                        sub.fee_amount,
+                        sub.source_marketplace,
+                        sub.source_filename
                     FROM (
                         SELECT
                             o.no_pesanan AS order_id,
                             cm.sales_channel_id,
                             u.fee_type_id,
-                            u.fee_value,
+                            SUM(ABS(u.fee_value)) AS fee_amount,
                             'shopee' AS source_marketplace,
-                            o.source_filename
+                            o.source_filename,
+                            o.uploaded_at
                         FROM staging.stg_shopee_income_main o
                         LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
                         CROSS JOIN LATERAL (VALUES {main_fee_values}) AS u(fee_type_id, fee_value)
                         WHERE cm.sales_channel_id IS NOT NULL
-                          AND NULLIF(TRIM(o.no_pesanan),'nan') IS NOT NULL
-                          AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                            AND NULLIF(TRIM(o.no_pesanan),'nan') IS NOT NULL
+                            AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                        GROUP BY 1, 2, 3, 5, 6, 7
                     ) sub
-                    GROUP BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.source_marketplace, sub.source_filename
-                    ON CONFLICT (order_id, fee_type_id, sales_channel_id) DO NOTHING
+                    ORDER BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.uploaded_at DESC NULLS LAST
+                    ON CONFLICT (order_id, fee_type_id, sales_channel_id)
+                    DO UPDATE SET
+                        fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
+                        source_filename = EXCLUDED.source_filename
                 """))
 
                 r2 = conn.execute(text("""
@@ -192,48 +223,58 @@ def run(engine, marketplace):
                         order_id, fee_type_id, sales_channel_id,
                         fee_amount, source_marketplace, source_filename
                     )
-                    SELECT sub.order_id, sub.fee_type_id, sub.sales_channel_id,
-                           SUM(ABS(sub.fee_value)), sub.source_marketplace, MIN(sub.source_filename)
+                    SELECT DISTINCT ON (sub.order_id, sub.fee_type_id, sub.sales_channel_id)
+                        sub.order_id,
+                        sub.fee_type_id,
+                        sub.sales_channel_id,
+                        sub.fee_amount,
+                        sub.source_marketplace,
+                        sub.source_filename
                     FROM (
                         SELECT
                             o.no_pesanan AS order_id,
                             cm.sales_channel_id,
                             u.fee_type_id,
-                            u.fee_value,
+                            SUM(ABS(u.fee_value)) AS fee_amount,
                             'shopee' AS source_marketplace,
-                            o.source_filename
+                            o.source_filename,
+                            o.uploaded_at
                         FROM staging.stg_shopee_income_service_fee o
                         LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
                         CROSS JOIN LATERAL (VALUES
                             (102, NULLIF(NULLIF(TRIM(o.biaya_pembayaran),'nan'),'')::NUMERIC),
                             (106,
                                 COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_gratis_ongkir_xtra),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_gratis_ongkir_xtra_2),'nan'),'')::NUMERIC,0)),
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_gratis_ongkir_xtra_2),'nan'),'')::NUMERIC,0)),
                             (107, NULLIF(NULLIF(TRIM(o.biaya_layanan_promo_xtra),'nan'),'')::NUMERIC),
                             (108,
                                 COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_cashback_xtra),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_cashbackxtra),'nan'),'')::NUMERIC,0)),
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_layanan_cashbackxtra),'nan'),'')::NUMERIC,0)),
                             (109, NULLIF(NULLIF(TRIM(o.biaya_program_shopee_live_xtra),'nan'),'')::NUMERIC),
                             (110,
                                 COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_1_1),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_2_2),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_3_3),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_4_4),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_5_5),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_6_6),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_7_7),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_8_8),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_9_9),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_10_10),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_11_11),'nan'),'')::NUMERIC,0)
-                              + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_12_12),'nan'),'')::NUMERIC,0))
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_2_2),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_3_3),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_4_4),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_5_5),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_6_6),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_7_7),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_8_8),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_9_9),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_10_10),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_11_11),'nan'),'')::NUMERIC,0)
+                                + COALESCE(NULLIF(NULLIF(TRIM(o.biaya_campaign_12_12),'nan'),'')::NUMERIC,0))
                         ) AS u(fee_type_id, fee_value)
                         WHERE cm.sales_channel_id IS NOT NULL
-                          AND NULLIF(TRIM(o.no_pesanan),'nan') IS NOT NULL
-                          AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                            AND NULLIF(TRIM(o.no_pesanan),'nan') IS NOT NULL
+                            AND u.fee_value IS NOT NULL AND u.fee_value <> 0
+                        GROUP BY 1, 2, 3, 5, 6, 7
                     ) sub
-                    GROUP BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.source_marketplace, sub.source_filename
-                    ON CONFLICT (order_id, fee_type_id, sales_channel_id) DO NOTHING
+                    ORDER BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.uploaded_at DESC NULLS LAST
+                    ON CONFLICT (order_id, fee_type_id, sales_channel_id)
+                    DO UPDATE SET
+                        fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
+                        source_filename = EXCLUDED.source_filename
                 """))
 
                 r3 = conn.execute(text("""
@@ -241,23 +282,38 @@ def run(engine, marketplace):
                         order_id, fee_type_id, sales_channel_id,
                         fee_amount, source_marketplace, source_filename
                     )
-                    SELECT
-                        NULLIF(TRIM(o.no_pesanan_terhubung),'nan'),
-                        ft.fee_type_id,
-                        cm.sales_channel_id,
-                        ABS(NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC),
-                        'shopee',
-                        o.source_filename
-                    FROM staging.stg_shopee_income_adjustment o
-                    LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
-                    JOIN public.dim_fee_type ft
-                        ON ft.fee_name = TRIM(o.tipe_penyesuaian_deskripsi)
-                       AND ft.marketplace_name = 'Shopee'
-                    WHERE cm.sales_channel_id IS NOT NULL
-                      AND NULLIF(TRIM(o.no_pesanan_terhubung),'nan') IS NOT NULL
-                      AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
-                      AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
-                    ON CONFLICT (order_id, fee_type_id, sales_channel_id) DO NOTHING
+                    SELECT DISTINCT ON (sub.order_id, sub.fee_type_id, sub.sales_channel_id)
+                        sub.order_id,
+                        sub.fee_type_id,
+                        sub.sales_channel_id,
+                        sub.fee_amount,
+                        sub.source_marketplace,
+                        sub.source_filename
+                    FROM (
+                        SELECT
+                            NULLIF(TRIM(o.no_pesanan_terhubung),'nan') AS order_id,
+                            ft.fee_type_id,
+                            cm.sales_channel_id,
+                            SUM(ABS(NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC)) AS fee_amount,
+                            'shopee' AS source_marketplace,
+                            o.source_filename,
+                            o.uploaded_at
+                        FROM staging.stg_shopee_income_adjustment o
+                        LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
+                        JOIN public.dim_fee_type ft
+                            ON ft.fee_name = TRIM(o.tipe_penyesuaian_deskripsi)
+                            AND ft.marketplace_name = 'Shopee'
+                        WHERE cm.sales_channel_id IS NOT NULL
+                            AND NULLIF(TRIM(o.no_pesanan_terhubung),'nan') IS NOT NULL
+                            AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'') IS NOT NULL
+                            AND NULLIF(NULLIF(TRIM(o.biaya_penyesuaian),'nan'),'')::NUMERIC <> 0
+                        GROUP BY 1, 2, 3, 5, 6, 7
+                    ) sub
+                    ORDER BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.uploaded_at DESC NULLS LAST
+                    ON CONFLICT (order_id, fee_type_id, sales_channel_id)
+                    DO UPDATE SET
+                        fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
+                        source_filename = EXCLUDED.source_filename
                 """))
 
                 logger.info(
@@ -265,40 +321,52 @@ def run(engine, marketplace):
                     f"{r2.rowcount} (sf) + {r3.rowcount} (adj) baris"
                 )
                 _warn_unmapped_wide_cols(conn, 'stg_shopee_income_main',
-                                         SHOPEE_INCOME_MAIN_FEE_COLS, SHOPEE_MAIN_NON_FEE_COLS, 'Shopee Main')
+                                            SHOPEE_INCOME_MAIN_FEE_COLS, SHOPEE_MAIN_NON_FEE_COLS, 'Shopee Main')
                 _warn_unmapped_wide_cols(conn, 'stg_shopee_income_service_fee',
-                                         SHOPEE_SF_MAPPED_FEE_COLS, SHOPEE_SF_NON_FEE_COLS, 'Shopee SF')
+                                            SHOPEE_SF_MAPPED_FEE_COLS, SHOPEE_SF_NON_FEE_COLS, 'Shopee SF')
                 _warn_unmapped_narrow_fees(conn, 'shopee', 'Shopee Adj')
                 _save_shopee_adj_orphans(conn)
                 check_fact_order_fees_narrow(conn, 'shopee', engine)
 
             elif marketplace == 'lazada':
+                
                 result = conn.execute(text("""
                     INSERT INTO public.fact_order_fees (
                         order_id, fee_type_id, sales_channel_id,
                         fee_amount, source_marketplace, source_filename
                     )
-                    SELECT sub.order_id, sub.fee_type_id, sub.sales_channel_id,
-                           SUM(ABS(sub.fee_value)), 'lazada', MIN(sub.source_filename)
+                    SELECT DISTINCT ON (sub.order_id, sub.fee_type_id, sub.sales_channel_id)
+                        sub.order_id,
+                        sub.fee_type_id,
+                        sub.sales_channel_id,
+                        sub.fee_amount,
+                        'lazada',
+                        sub.source_filename
                     FROM (
                         SELECT
                             COALESCE(NULLIF(TRIM(o.nomor_pesanan),'nan'), NULLIF(TRIM(o.id_pesanan),'nan')) AS order_id,
                             cm.sales_channel_id,
                             ft.fee_type_id,
-                            NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC AS fee_value,
-                            o.source_filename
+                            SUM(ABS(NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC)) AS fee_amount,
+                            o.source_filename,
+                            o.uploaded_at
                         FROM staging.stg_lazada_income o
                         LEFT JOIN _tmp_channel_map cm ON cm.nama_toko = LOWER(TRIM(o.nama_toko))
                         JOIN public.dim_fee_type ft
                             ON ft.fee_name = TRIM(o.nama_biaya) AND ft.marketplace_name = 'Lazada'
                         WHERE cm.sales_channel_id IS NOT NULL
-                          AND COALESCE(NULLIF(TRIM(o.nomor_pesanan),'nan'), NULLIF(TRIM(o.id_pesanan),'nan')) IS NOT NULL
-                          AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan') IS NOT NULL
-                          AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC <> 0
+                            AND COALESCE(NULLIF(TRIM(o.nomor_pesanan),'nan'), NULLIF(TRIM(o.id_pesanan),'nan')) IS NOT NULL
+                            AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan') IS NOT NULL
+                            AND NULLIF(REPLACE(TRIM(o.jumlah_termasuk_pajak),',',''),'nan')::NUMERIC <> 0
+                        GROUP BY 1, 2, 3, 5, 6
                     ) sub
-                    GROUP BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.source_filename
-                    ON CONFLICT (order_id, fee_type_id, sales_channel_id) DO NOTHING
+                    ORDER BY sub.order_id, sub.fee_type_id, sub.sales_channel_id, sub.uploaded_at DESC NULLS LAST
+                    ON CONFLICT (order_id, fee_type_id, sales_channel_id)
+                    DO UPDATE SET
+                        fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
+                        source_filename = EXCLUDED.source_filename
                 """))
+                
                 logger.info(f"✅ fact_order_fees (lazada): {result.rowcount} baris")
                 _warn_unmapped_narrow_fees(conn, 'lazada', 'Lazada')
                 check_fact_order_fees_narrow(conn, 'lazada', engine)
