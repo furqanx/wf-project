@@ -4,6 +4,7 @@ from sqlalchemy import text
 from src.db_config import logger
 from src.transform._helpers import setup_maps
 from src.transform._checks import check_fact_balance_transaction
+from src.transform._audit import pre_audit_fact_balance_transaction
 
 
 def run(engine, marketplace):
@@ -11,6 +12,7 @@ def run(engine, marketplace):
     try:
         with engine.begin() as conn:
             setup_maps(conn, marketplace)
+            pre_audit_fact_balance_transaction(conn, marketplace)
 
             if marketplace == 'shopee':
                 conn.execute(text("DELETE FROM public.fact_balance_transaction WHERE source_marketplace = 'shopee'"))
