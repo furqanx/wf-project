@@ -5,6 +5,7 @@ from src.db_config import logger
 from src.transform._helpers import setup_maps
 from src.transform._checks import check_fact_order_fees_narrow
 from src.transform._pre_audit import pre_audit_fact_order_fees
+from src.transform._post_audit import post_audit_fact_table
 from src.transform._maps import (
     TIKTOK_INCOME_FEE_COLS, TIKTOK_NON_FEE_COLS,
     SHOPEE_INCOME_MAIN_FEE_COLS, SHOPEE_MAIN_NON_FEE_COLS,
@@ -173,7 +174,15 @@ def run(engine, marketplace):
                         fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
                         source_filename = EXCLUDED.source_filename
                 """))
-                
+                post_audit_fact_table(
+                    conn,
+                    "fact_order_fees",
+                    marketplace,
+                    "fact_order_fees",
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_order_fees (tiktok_tokopedia): {result.rowcount} baris")
                 _warn_unmapped_wide_cols(conn, 'stg_tiktok_tokopedia_income', TIKTOK_INCOME_FEE_COLS, TIKTOK_NON_FEE_COLS, 'TikTok')
 
@@ -318,6 +327,16 @@ def run(engine, marketplace):
                         source_filename = EXCLUDED.source_filename
                 """))
 
+                shopee_rowcount = sum(rowcount for rowcount in (r1.rowcount, r2.rowcount, r3.rowcount) if rowcount and rowcount > 0)
+                post_audit_fact_table(
+                    conn,
+                    "fact_order_fees",
+                    marketplace,
+                    "fact_order_fees",
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    shopee_rowcount,
+                )
                 logger.info(
                     f"✅ fact_order_fees (shopee): {r1.rowcount} (main) + "
                     f"{r2.rowcount} (sf) + {r3.rowcount} (adj) baris"
@@ -368,7 +387,15 @@ def run(engine, marketplace):
                         fee_amount      = COALESCE(EXCLUDED.fee_amount, fact_order_fees.fee_amount),
                         source_filename = EXCLUDED.source_filename
                 """))
-                
+                post_audit_fact_table(
+                    conn,
+                    "fact_order_fees",
+                    marketplace,
+                    "fact_order_fees",
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    ["order_id", "fee_type_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_order_fees (lazada): {result.rowcount} baris")
                 _warn_unmapped_narrow_fees(conn, 'lazada', 'Lazada')
                 check_fact_order_fees_narrow(conn, 'lazada', engine)

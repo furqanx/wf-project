@@ -106,3 +106,87 @@ def post_audit_fact_table(
             null_required,
             f"Baris public dengan NULL di kolom wajib: {', '.join(required_columns)}.",
         )
+
+
+def post_audit_fact_balance_transaction(conn, marketplace, rowcount):
+    module_name = "fact_balance_transaction"
+    rows_affected = rowcount if rowcount is not None and rowcount >= 0 else 0
+    eligible_grains = _latest_pre_eligible(conn, module_name, marketplace)
+
+    log_transform_audit(
+        conn,
+        "post",
+        module_name,
+        marketplace,
+        "INFO",
+        "rows_affected",
+        rows_affected,
+        "Jumlah baris balance transaction yang masuk ulang setelah delete-insert.",
+    )
+
+    severity = "ERROR" if eligible_grains and not rows_affected else "INFO"
+    log_transform_audit(
+        conn,
+        "post",
+        module_name,
+        marketplace,
+        severity,
+        "eligible_but_zero_rows_affected",
+        1 if eligible_grains and not rows_affected else 0,
+        "Eligible staging ada tetapi balance transaction menghasilkan 0 inserted row.",
+    )
+
+    duplicate_signature = _scalar(conn, """
+        SELECT COALESCE(SUM(cnt - 1), 0)
+        FROM (
+            SELECT COUNT(*) AS cnt
+            FROM public.fact_balance_transaction
+            WHERE source_marketplace = :marketplace
+            GROUP BY
+                sales_channel_id,
+                transaction_date,
+                type,
+                COALESCE(sub_type, ''),
+                direction,
+                amount,
+                COALESCE(payout_batch_id, ''),
+                COALESCE(remarks, ''),
+                transaction_date_id
+            HAVING COUNT(*) > 1
+        ) d
+    """, {"marketplace": marketplace})
+    log_transform_audit(
+        conn,
+        "post",
+        module_name,
+        marketplace,
+        _severity_for_count(duplicate_signature),
+        "duplicate_public_signature",
+        duplicate_signature,
+        "Baris ekstra dengan signature transaksi public yang sama.",
+    )
+
+    null_required = _scalar(conn, """
+        SELECT COUNT(*)
+        FROM public.fact_balance_transaction
+        WHERE source_marketplace = :marketplace
+          AND (
+              sales_channel_id IS NULL
+              OR transaction_date IS NULL
+              OR type IS NULL
+              OR direction IS NULL
+              OR amount IS NULL
+              OR source_marketplace IS NULL
+              OR transaction_date_id IS NULL
+          )
+    """, {"marketplace": marketplace})
+    log_transform_audit(
+        conn,
+        "post",
+        module_name,
+        marketplace,
+        _severity_for_count(null_required),
+        "null_required_public_columns",
+        null_required,
+        "Baris public dengan NULL di kolom wajib balance transaction.",
+    )

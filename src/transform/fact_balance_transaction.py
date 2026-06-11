@@ -5,6 +5,7 @@ from src.db_config import logger
 from src.transform._helpers import setup_maps
 from src.transform._checks import check_fact_balance_transaction
 from src.transform._pre_audit import pre_audit_fact_balance_transaction
+from src.transform._post_audit import post_audit_fact_balance_transaction
 
 
 def run(engine, marketplace):
@@ -90,6 +91,8 @@ def run(engine, marketplace):
                         TRIM(r.jumlah), TRIM(r.deskripsi), cm.sales_channel_id
                 """))
 
+                rowcount = sum(count for count in (r1.rowcount, r2.rowcount) if count and count > 0)
+                post_audit_fact_balance_transaction(conn, marketplace, rowcount)
                 logger.info(f"✅ fact_balance_transaction (shopee): {r1.rowcount + r2.rowcount} baris")
 
             elif marketplace == 'tiktok_tokopedia':
@@ -158,6 +161,8 @@ def run(engine, marketplace):
                         AND NULLIF(TRIM(r.reference_id), 'nan') IS NOT NULL
                         ORDER BY TRIM(r.reference_id), cm.sales_channel_id
                 """))
+                rowcount = sum(count for count in (r1.rowcount, r2.rowcount) if count and count > 0)
+                post_audit_fact_balance_transaction(conn, marketplace, rowcount)
                 logger.info(f"✅ fact_balance_transaction (tiktok_tokopedia): {r1.rowcount + r2.rowcount} baris")
 
             elif marketplace == 'lazada':
@@ -220,6 +225,8 @@ def run(engine, marketplace):
                       AND NULLIF(TRIM(r.transaction_number), 'nan') IS NOT NULL
                     ORDER BY TRIM(r.transaction_number), cm.sales_channel_id
                 """))
+                rowcount = sum(count for count in (r1.rowcount, r2.rowcount) if count and count > 0)
+                post_audit_fact_balance_transaction(conn, marketplace, rowcount)
                 logger.info(f"✅ fact_balance_transaction (lazada): {r1.rowcount + r2.rowcount} baris")
 
             else:

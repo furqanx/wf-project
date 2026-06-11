@@ -3,7 +3,8 @@
 from sqlalchemy import text
 from src.db_config import logger
 from src.transform._helpers import setup_maps
-from src.transform._audit import pre_audit_fact_settlement
+from src.transform._pre_audit import pre_audit_fact_settlement
+from src.transform._post_audit import post_audit_fact_table
 
 
 def run(engine, marketplace):
@@ -45,6 +46,15 @@ def run(engine, marketplace):
                         settlement_date_id  = COALESCE(EXCLUDED.settlement_date_id, fact_settlement.settlement_date_id),
                         source_filename     = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_settlement",
+                    marketplace,
+                    "fact_settlement",
+                    ["order_id", "sales_channel_id"],
+                    ["order_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_settlement (shopee): {result.rowcount} baris")
 
             elif marketplace == 'tiktok_tokopedia':
@@ -77,6 +87,15 @@ def run(engine, marketplace):
                         settlement_date_id  = COALESCE(EXCLUDED.settlement_date_id, fact_settlement.settlement_date_id),
                         source_filename     = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_settlement",
+                    marketplace,
+                    "fact_settlement",
+                    ["order_id", "sales_channel_id"],
+                    ["order_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_settlement (tiktok_tokopedia): {result.rowcount} baris")
 
             elif marketplace == 'lazada':
@@ -122,6 +141,15 @@ def run(engine, marketplace):
                         settlement_date_id  = COALESCE(EXCLUDED.settlement_date_id, fact_settlement.settlement_date_id),
                         source_filename     = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_settlement",
+                    marketplace,
+                    "fact_settlement",
+                    ["order_id", "sales_channel_id"],
+                    ["order_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_settlement (lazada): {result.rowcount} baris")
 
             else:

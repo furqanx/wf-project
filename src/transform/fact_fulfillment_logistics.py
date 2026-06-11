@@ -5,6 +5,7 @@ from src.db_config import logger
 from src.transform._helpers import setup_maps
 from src.transform._checks import check_fact_fulfillment_logistics
 from src.transform._pre_audit import pre_audit_fact_fulfillment_logistics
+from src.transform._post_audit import post_audit_fact_table
 
 
 def run(engine, marketplace):
@@ -218,6 +219,15 @@ def run(engine, marketplace):
                 return
 
             result = conn.execute(sql)
+            post_audit_fact_table(
+                conn,
+                "fact_fulfillment_logistics",
+                marketplace,
+                "fact_fulfillment_logistics",
+                ["order_id", "sales_channel_id"],
+                ["order_id", "sales_channel_id"],
+                result.rowcount,
+            )
             logger.info(f"✅ fact_fulfillment_logistics ({marketplace}): {result.rowcount} baris")
             check_fact_fulfillment_logistics(conn, marketplace, engine)
 

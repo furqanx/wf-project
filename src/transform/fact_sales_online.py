@@ -5,6 +5,7 @@ from src.db_config import logger
 from src.transform._helpers import setup_maps
 from src.transform._checks import check_fact_sales_online
 from src.transform._pre_audit import pre_audit_fact_sales_online
+from src.transform._post_audit import post_audit_fact_table
 
 
 def run(engine, marketplace):
@@ -117,6 +118,15 @@ def run(engine, marketplace):
                         payment_method_id    = COALESCE(EXCLUDED.payment_method_id,    fact_sales_online.payment_method_id),
                         source_filename      = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_sales_online",
+                    marketplace,
+                    "fact_sales_online",
+                    ["order_id", "product_id", "sales_channel_id"],
+                    ["order_id", "product_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_sales_online (shopee): {result.rowcount} baris")
 
             elif marketplace == 'tiktok_tokopedia':
@@ -217,6 +227,15 @@ def run(engine, marketplace):
                         payment_method_id    = COALESCE(EXCLUDED.payment_method_id,    fact_sales_online.payment_method_id),
                         source_filename      = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_sales_online",
+                    marketplace,
+                    "fact_sales_online",
+                    ["order_id", "product_id", "sales_channel_id"],
+                    ["order_id", "product_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_sales_online (tiktok_tokopedia): {result.rowcount} baris")
 
             elif marketplace == 'lazada':
@@ -324,6 +343,15 @@ def run(engine, marketplace):
                         payment_method_id    = COALESCE(EXCLUDED.payment_method_id,    fact_sales_online.payment_method_id),
                         source_filename      = EXCLUDED.source_filename
                 """))
+                post_audit_fact_table(
+                    conn,
+                    "fact_sales_online",
+                    marketplace,
+                    "fact_sales_online",
+                    ["order_id", "product_id", "sales_channel_id"],
+                    ["order_id", "product_id", "sales_channel_id"],
+                    result.rowcount,
+                )
                 logger.info(f"✅ fact_sales_online (lazada): {result.rowcount} baris")
 
             else:
