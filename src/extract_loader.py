@@ -6,7 +6,38 @@ import zipfile
 import xml.etree.ElementTree as ET
 from sqlalchemy import text
 from src.db_config import logger
-from src.notifier import notify_schema_drift, notify_unknown_sheet
+from src.notifier import log_schema_issue, notify_schema_drift, notify_unknown_sheet
+from src.schema_contracts import validate_dataframe_schema, validate_dataframe_values_with_pandera
+
+
+def _log_schema_issue(issue, filename, table_name):
+    prefix = f"[{table_name}] | {filename}" if table_name else filename
+    message = f"{prefix}: {issue.drift_type}"
+    if issue.column_name:
+        message += f" | kolom={issue.column_name}"
+    message += f" | {issue.message}"
+
+    if issue.severity == "ERROR":
+        logger.error(message)
+    elif issue.severity == "WARNING":
+        logger.warning(message)
+    else:
+        logger.info(message)
+
+
+def _enforce_schema_legacy(df, valid_columns, filename, table_name='', file_path='', engine=None):
+    current_cols = set(df.columns)
+    valid_cols_set = set(valid_columns)
+
+    extra_cols = current_cols - valid_cols_set
+
+    if extra_cols:
+        logger.warning(f"⚠️ SCHEMA DRIFT TERDETEKSI pada file {filename}!")
+        logger.warning(f"Kolom baru diabaikan agar tidak crash: {extra_cols}")
+        df = df.drop(columns=list(extra_cols))
+        notify_schema_drift(filename, extra_cols, table_name, file_path, engine)
+
+    return df
 
 def extract_store_name(filename):
     """
@@ -170,25 +201,56 @@ def extract_tiktok_report_store_name(filename):
 
 def enforce_schema(df, valid_columns, filename, table_name='', file_path='', engine=None):
     """
-    Mencegah error Schema Drift. Membuang kolom dari Excel yang tidak ada di tabel Staging SQL.
-    Jika ada kolom baru yang tidak dikenal:
-      - Log warning
-      - Kirim notifikasi Telegram
-      - Catat ke staging.schema_drift_log
-      - Upload file ke Google Drive
+    Mencegah error schema drift sebelum data masuk staging.
+
+    Jika schema contract tersedia, validasi dilakukan melalui:
+        - YAML schema contract
+        - Python schema drift validator
+        - Pandera value-level validator
+
+    Jika contract belum tersedia atau validator gagal, fungsi kembali ke logic
+    legacy berbasis valid_columns agar upload flow lama tetap aman.
     """
-    current_cols   = set(df.columns)
-    valid_cols_set = set(valid_columns)
+    if not table_name:
+        return _enforce_schema_legacy(df, valid_columns, filename, table_name, file_path, engine)
 
-    extra_cols = current_cols - valid_cols_set
+    try:
+        schema_result = validate_dataframe_schema(df, table_name)
+    except KeyError:
+        logger.warning(
+            f"Schema contract belum tersedia untuk tabel {table_name}. "
+            "Fallback ke enforce_schema legacy."
+        )
+        return _enforce_schema_legacy(df, valid_columns, filename, table_name, file_path, engine)
+    except Exception as e:
+        logger.warning(
+            f"Schema contract validator gagal untuk {table_name}: {e}. "
+            "Fallback ke enforce_schema legacy."
+        )
+        return _enforce_schema_legacy(df, valid_columns, filename, table_name, file_path, engine)
 
-    if extra_cols:
+    for issue in schema_result.issues:
+        _log_schema_issue(issue, filename, table_name)
+        log_schema_issue(filename, table_name, issue, engine)
+
+    if schema_result.extra_columns:
         logger.warning(f"⚠️ SCHEMA DRIFT TERDETEKSI pada file {filename}!")
-        logger.warning(f"Kolom baru diabaikan agar tidak crash: {extra_cols}")
-        df = df.drop(columns=list(extra_cols))
-        notify_schema_drift(filename, extra_cols, table_name, file_path, engine)
+        logger.warning(f"Kolom baru diabaikan agar tidak crash: {set(schema_result.extra_columns)}")
+        notify_schema_drift(filename, set(schema_result.extra_columns), table_name, file_path, engine)
 
-    return df
+    if not schema_result.can_continue:
+        errors = "; ".join(issue.message for issue in schema_result.errors)
+        raise ValueError(
+            f"Schema validation gagal untuk {filename} [{table_name}]. "
+            f"Detail: {errors or 'kolom hasil normalisasi ambigu'}"
+        )
+
+    value_issues = validate_dataframe_values_with_pandera(schema_result.normalized_df, table_name)
+    for issue in value_issues:
+        _log_schema_issue(issue, filename, table_name)
+        log_schema_issue(filename, table_name, issue, engine)
+
+    return schema_result.normalized_df
 
 # ==========================================
 # FUNGSI LOADER KE DATABASE

@@ -59,18 +59,38 @@ def _ensure_log_table(engine):
                     detected_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     filename      TEXT        NOT NULL,
                     table_name    TEXT,
+                    severity      TEXT,
                     drift_type    TEXT        NOT NULL,
+                    column_name   TEXT,
+                    message       TEXT,
                     detail        TEXT,
                     drive_file_id TEXT,
                     drive_url     TEXT
                 )
+            """))
+            conn.execute(text("""
+                ALTER TABLE staging.schema_drift_log
+                    ADD COLUMN IF NOT EXISTS severity TEXT,
+                    ADD COLUMN IF NOT EXISTS column_name TEXT,
+                    ADD COLUMN IF NOT EXISTS message TEXT
             """))
         _log_table_ready = True
     except Exception as e:
         logger.warning(f"Notifier: Gagal membuat tabel schema_drift_log: {e}")
 
 
-def _log_to_db(engine, filename, table_name, drift_type, detail, drive_file_id='', drive_url=''):
+def _log_to_db(
+    engine,
+    filename,
+    table_name,
+    drift_type,
+    detail,
+    drive_file_id='',
+    drive_url='',
+    severity='',
+    column_name='',
+    message='',
+):
     if engine is None:
         return
     _ensure_log_table(engine)
@@ -79,14 +99,23 @@ def _log_to_db(engine, filename, table_name, drift_type, detail, drive_file_id='
         with engine.begin() as conn:
             conn.execute(text("""
                 INSERT INTO staging.schema_drift_log
-                    (filename, table_name, drift_type, detail, drive_file_id, drive_url)
+                    (
+                        filename, table_name, severity, drift_type, column_name,
+                        message, detail, drive_file_id, drive_url
+                    )
                 VALUES
-                    (:filename, :table_name, :drift_type, :detail, :drive_file_id, :drive_url)
+                    (
+                        :filename, :table_name, :severity, :drift_type, :column_name,
+                        :message, :detail, :drive_file_id, :drive_url
+                    )
             """), 
             {
                 'filename':      filename,
                 'table_name':    table_name or '',
+                'severity':      severity or '',
                 'drift_type':    drift_type,
+                'column_name':   column_name or '',
+                'message':       message or detail or '',
                 'detail':        detail,
                 'drive_file_id': drive_file_id or '',
                 'drive_url':     drive_url or '',
@@ -185,6 +214,27 @@ def _notify(message, engine, filename, table_name, drift_type, detail, file_path
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
+def log_schema_issue(filename: str, table_name: str, issue, engine=None):
+    """Mencatat satu issue schema/value validation ke staging.schema_drift_log."""
+    if engine is None:
+        return
+
+    detail = (
+        f"{issue.severity} | {issue.drift_type}"
+        f" | column={issue.column_name or ''}"
+        f" | {issue.message}"
+    )
+    _log_to_db(
+        engine=engine,
+        filename=filename,
+        table_name=table_name,
+        drift_type=issue.drift_type,
+        detail=detail,
+        severity=issue.severity,
+        column_name=issue.column_name or '',
+        message=issue.message,
+    )
 
 def notify_schema_drift(filename: str, extra_cols: set,
                         table_name: str = '',
