@@ -24,7 +24,7 @@ __pycache__/
 *.pyo
 
 # Backup
-*.sql
+# *.sql
 
 # OS
 .DS_Store
@@ -59,3 +59,14 @@ wellfarm-claude-server-info.md
 wellfarm-data-modeling-principles.txt
 wellfarm-skenario-perubahan-kolom-data-source.txt
 wellfarm-transform-data-design-principles.txt
+Wellfarm-Sales-Dashboard.png
+wellfarm catatan penting.txt
+result3.txt
+result2.txt
+result.txt
+result_owellness.txt
+NOTES.md
+konteks domain.md
+fact-sales-settlement-channel-mismatch-analysis.md
+cek_dns.sh
+bekal cloudflare.txt
