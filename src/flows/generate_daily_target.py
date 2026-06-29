@@ -25,7 +25,7 @@ DASHBOARD_MATERIALIZED_VIEWS = [
     "public.mv_distribution_daily_target_vs_realization",
 ]
 
-SQL_DIR = Path(__file__).resolve().parent / "sql" / "generate_daily_target"
+SQL_DIR = Path(__file__).resolve().parent / "queries" / "generate_daily_target"
 
 
 def _load_sql(filename: str) -> str:
