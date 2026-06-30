@@ -70,3 +70,9 @@ konteks domain.md
 fact-sales-settlement-channel-mismatch-analysis.md
 cek_dns.sh
 bekal cloudflare.txt
+
+.agents/
+.claude/
+.codex/
+.streamlit/
+.vscode/
