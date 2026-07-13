@@ -60,7 +60,8 @@ def run_crewdible_extract(
         if write_manifest:
             if engine is None:
                 raise RuntimeError("engine is required when write_manifest=True.")
-            insert_manifest_record(engine, record)
+            manifest_id = insert_manifest_record(engine, record)
+            records[-1] = record.model_copy(update={"manifest_id": manifest_id})
     return records
 
 

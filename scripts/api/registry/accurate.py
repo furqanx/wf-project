@@ -16,6 +16,7 @@ def _list_endpoint(
     endpoint: str,
     storage_group: str,
     fetch_mode: str,
+    date_filter_field: str | None = None,
 ) -> EndpointSpec:
     return EndpointSpec(
         name=name,
@@ -25,6 +26,7 @@ def _list_endpoint(
         method="GET",
         pagination_strategy="page_limit",
         fetch_mode=fetch_mode,
+        date_filter_field=date_filter_field or ("transDate" if fetch_mode == "incremental" else None),
         storage_group=storage_group,
         default_payload={"sp.page": 1, "sp.pageSize": CONFIG.accurate.default_page_size},
     )
@@ -103,10 +105,10 @@ ACCURATE_ENDPOINTS: tuple[EndpointSpec, ...] = (
     _list_endpoint(name="wo_pic", endpoint_group="manufacturing", endpoint="/api/wo-pic", storage_group="optional/manufacturing", fetch_mode="incremental"),
     _list_endpoint(name="work_order", endpoint_group="manufacturing", endpoint="/api/work-order", storage_group="optional/manufacturing", fetch_mode="incremental"),
 
-    # Optional: POS.
-    _list_endpoint(name="pos_customer", endpoint_group="pos", endpoint="/api/pos/customer", storage_group="optional/pos", fetch_mode="incremental"),
-    _list_endpoint(name="pos_item", endpoint_group="pos", endpoint="/api/pos/item", storage_group="optional/pos", fetch_mode="incremental"),
-    _list_endpoint(name="pos_transaction", endpoint_group="pos", endpoint="/api/pos/transaction", storage_group="optional/pos", fetch_mode="incremental"),
+    # Review before run: POS endpoints returned 404 during validation.
+    _list_endpoint(name="pos_customer", endpoint_group="pos", endpoint="/api/pos/customer", storage_group="review/pos", fetch_mode="manual"),
+    _list_endpoint(name="pos_item", endpoint_group="pos", endpoint="/api/pos/item", storage_group="review/pos", fetch_mode="manual"),
+    _list_endpoint(name="pos_transaction", endpoint_group="pos", endpoint="/api/pos/transaction", storage_group="review/pos", fetch_mode="manual"),
 
     # Review before run: system config.
     _list_endpoint(name="auto_number", endpoint_group="system_config", endpoint="/api/auto-number", storage_group="review/system_config", fetch_mode="manual"),
@@ -121,6 +123,7 @@ def get_endpoint_specs(
     endpoint_group: str | None = None,
     endpoint_name: str | None = None,
     storage_group_prefix: str | None = None,
+    fetch_mode: str | None = None,
 ) -> list[EndpointSpec]:
     specs = list(ACCURATE_ENDPOINTS)
     if endpoint_group:
@@ -129,4 +132,6 @@ def get_endpoint_specs(
         specs = [spec for spec in specs if spec.name == endpoint_name]
     if storage_group_prefix:
         specs = [spec for spec in specs if spec.storage_folder.startswith(storage_group_prefix)]
+    if fetch_mode:
+        specs = [spec for spec in specs if spec.fetch_mode == fetch_mode]
     return specs

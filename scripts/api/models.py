@@ -32,6 +32,7 @@ class EndpointSpec(ApiBaseModel):
     path_params: tuple[str, ...] = Field(default_factory=tuple)
     pagination_strategy: PaginationStrategy = "none"
     fetch_mode: FetchMode = "full"
+    date_filter_field: str | None = None
     storage_group: str | None = None
     default_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -80,6 +81,7 @@ class RawFileInfo(ApiBaseModel):
 class ManifestRecord(ApiBaseModel):
     """Metadata row for api_staging.raw_file_manifest."""
 
+    manifest_id: int | None = None
     source_system: str
     endpoint_group: str
     endpoint: str

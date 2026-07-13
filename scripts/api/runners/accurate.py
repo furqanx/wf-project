@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -28,6 +28,9 @@ def run_accurate_extract(
     endpoint_name: str | None = None,
     storage_group_prefix: str | None = None,
     request_params: dict[str, Any] | None = None,
+    fetch_mode: str | None = None,
+    start_date: str | date | None = None,
+    end_date: str | date | None = None,
     raw_root: str | Path,
     engine: Engine | None = None,
     write_manifest: bool = True,
@@ -40,6 +43,7 @@ def run_accurate_extract(
         endpoint_group=endpoint_group,
         endpoint_name=endpoint_name,
         storage_group_prefix=storage_group_prefix,
+        fetch_mode=fetch_mode,
     )
     if not specs:
         raise RuntimeError("No Accurate endpoint matched the requested filter.")
@@ -50,12 +54,18 @@ def run_accurate_extract(
 
     records: list[ManifestRecord] = []
     for spec in specs:
-        validate_fetch_mode(spec, request_params or {}, allow_manual=allow_manual)
+        effective_request_params = build_effective_request_params(
+            spec=spec,
+            request_params=request_params or {},
+            start_date=start_date,
+            end_date=end_date,
+        )
+        validate_fetch_mode(spec, effective_request_params, allow_manual=allow_manual)
         logger.info("Fetch Accurate endpoint: %s", spec.name)
         record = fetch_and_store_endpoint(
             client=client,
             spec=spec,
-            request_params=request_params or {},
+            request_params=effective_request_params,
             raw_root=raw_root,
             compress=compress,
             max_pages=max_pages,
@@ -65,7 +75,8 @@ def run_accurate_extract(
         if write_manifest:
             if engine is None:
                 raise RuntimeError("engine is required when write_manifest=True.")
-            insert_manifest_record(engine, record)
+            manifest_id = insert_manifest_record(engine, record)
+            records[-1] = record.model_copy(update={"manifest_id": manifest_id})
     return records
 
 
@@ -179,6 +190,44 @@ def build_params(spec: EndpointSpec, request_params: dict[str, Any]) -> dict[str
     if missing:
         raise ValueError(f"Missing request params for {spec.name}: {', '.join(missing)}")
     return params
+
+
+def build_effective_request_params(
+    *,
+    spec: EndpointSpec,
+    request_params: dict[str, Any],
+    start_date: str | date | None,
+    end_date: str | date | None,
+) -> dict[str, Any]:
+    """Add an Accurate date filter for incremental endpoints when requested."""
+    params = dict(request_params)
+    if spec.fetch_mode != "incremental" or has_incremental_filter(params):
+        return params
+    if start_date is None and end_date is None:
+        return params
+    if start_date is None or end_date is None:
+        raise ValueError("Both start_date and end_date are required for incremental date filtering.")
+    if not spec.date_filter_field:
+        raise ValueError(f"Endpoint {spec.name} has no date_filter_field configured.")
+
+    field = spec.date_filter_field
+    params[f"filter.{field}.op"] = "BETWEEN"
+    params[f"filter.{field}.val[0]"] = format_accurate_date(start_date)
+    params[f"filter.{field}.val[1]"] = format_accurate_date(end_date)
+    return params
+
+
+def format_accurate_date(value: str | date) -> str:
+    """Return Accurate-friendly dd/mm/YYYY date text."""
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+    value = value.strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    raise ValueError(f"Invalid date '{value}'. Use YYYY-MM-DD or DD/MM/YYYY.")
 
 
 def validate_fetch_mode(

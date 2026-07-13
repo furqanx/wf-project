@@ -20,7 +20,7 @@ def insert_manifest_record(
     *,
     schema: str = MANIFEST_SCHEMA,
     table_name: str = MANIFEST_TABLE,
-) -> None:
+) -> int:
     query = text(
         f"""
         INSERT INTO {schema}.{table_name} (
@@ -71,6 +71,7 @@ def insert_manifest_record(
             :run_id,
             :error_message
         )
+        RETURNING manifest_id
         """
     )
     payload = {
@@ -98,4 +99,5 @@ def insert_manifest_record(
         "error_message": record.error_message,
     }
     with engine.begin() as conn:
-        conn.execute(query, payload)
+        manifest_id = conn.execute(query, payload).scalar_one()
+    return int(manifest_id)

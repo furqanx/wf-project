@@ -30,6 +30,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--group", dest="endpoint_group", default=None)
     parser.add_argument("--endpoint", dest="endpoint_name", default=None)
     parser.add_argument(
+        "--fetch-mode",
+        choices=["full", "incremental", "manual"],
+        default=None,
+        help="Filter endpoint mode. Mainly used by Accurate.",
+    )
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="Start date for incremental Accurate endpoints, format YYYY-MM-DD.",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        help="End date for incremental Accurate endpoints, format YYYY-MM-DD.",
+    )
+    parser.add_argument(
         "--storage-group-prefix",
         default=None,
         help="Filter storage group prefix, e.g. active, optional, review.",
@@ -58,6 +74,7 @@ def main() -> None:
     logger.info("Source system : %s", args.source_system)
     logger.info("Endpoint group: %s", args.endpoint_group or "ALL")
     logger.info("Endpoint name : %s", args.endpoint_name or "ALL")
+    logger.info("Fetch mode    : %s", args.fetch_mode or "ALL")
     raw_root = args.raw_root or default_raw_root(args.source_system)
     logger.info("Storage group: %s", args.storage_group_prefix or "ALL")
     logger.info("Raw root      : %s", raw_root)
@@ -95,17 +112,24 @@ def main() -> None:
             endpoint_name=args.endpoint_name,
             storage_group_prefix=args.storage_group_prefix,
             request_params=request_params,
+            fetch_mode=args.fetch_mode,
+            start_date=args.start_date,
+            end_date=args.end_date,
             raw_root=raw_root,
             engine=engine,
             write_manifest=not args.skip_manifest,
             compress=args.compress,
             max_pages=args.max_pages,
+            allow_manual=args.allow_manual,
         )
     else:
         raise NotImplementedError(f"Unsupported source system: {args.source_system}")
 
     success_count = sum(1 for record in records if record.success)
     failed_count = len(records) - success_count
+    for record in records:
+        if not record.success:
+            logger.error("Failed endpoint=%s error=%s", record.endpoint, record.error_message)
     logger.info("Finished. Success: %s | Failed: %s", success_count, failed_count)
 
 
