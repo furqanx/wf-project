@@ -3,21 +3,6 @@ env/
 .env
 *.env
 
-# Data files (jangan diupload ke GitHub)
-dashboards
-dashboards/docker-compose.yml
-data/
-temp/
-sql/
-src/delivery_order_loader.py
-src/distribution_target_loader.py
-src/product_price_loader.py
-src/production_loader.py
-src/production_target_loader.py
-src/raw_material_loader.py
-src/stock_out_loader.py
-src/load_geography.py
-
 # Python
 __pycache__/
 *.pyc
@@ -31,48 +16,23 @@ __pycache__/
 Thumbs.db
 EOF
 
-
-sku_tidak_dikenal - sku_tidak_dikenal.csv.csv
-Threshold 2026 - Lian - A.pdf
-Threshold 2026 - Lian - Copy of 1.pdf
-wellfarm documents
-catatan pekerjaan wellfarm
-
-data baru
-
-bulk_import.py
-
-
-catatan.txt
-chatgpt-wellfarm-website-knowledge.txt
-claude-wellfarm-project-context.md
-claude-wellfarm-server-info.md
-streamlit-upload-optimization-notes.txt
-wellfarm-db-structure-summary.txt
-
-
-welfarm-streamlit-upload-optimization-notes.txt
-wellfarm-catatan.txt
-wellfarm-chatgpt-website-knowledge.txt
-wellfarm-claude-project-context.md
-wellfarm-claude-server-info.md
-wellfarm-data-modeling-principles.txt
-wellfarm-skenario-perubahan-kolom-data-source.txt
-wellfarm-transform-data-design-principles.txt
-Wellfarm-Sales-Dashboard.png
-wellfarm catatan penting.txt
-result3.txt
-result2.txt
-result.txt
-result_owellness.txt
-NOTES.md
-konteks domain.md
-fact-sales-settlement-channel-mismatch-analysis.md
-cek_dns.sh
-bekal cloudflare.txt
-
 .agents/
 .claude/
 .codex/
 .streamlit/
 .vscode/
+
+etc/
+# data/
+
+Accurate Online API token.pdf
+Crewdible API OMS External.pdf
+crewdible-api-oms-external-endpoints.md
+CREWDIBLE.txt
+Dokumentasi BigSeller Open API Interface.pdf
+NOTES.md
+warehouses info contract.txt
+
+data/lazada
+data/shopee
+data/tiktok-tokopedia
