@@ -1,0 +1,2 @@
+"""Crewdible endpoint registry."""
+
