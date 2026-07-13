@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 HttpMethod = Literal["GET", "POST"]
 PaginationStrategy = Literal["none", "page_limit"]
+FetchMode = Literal["full", "incremental", "manual"]
 
 
 class ApiBaseModel(BaseModel):
@@ -30,6 +31,8 @@ class EndpointSpec(ApiBaseModel):
     required_params: tuple[str, ...] = Field(default_factory=tuple)
     path_params: tuple[str, ...] = Field(default_factory=tuple)
     pagination_strategy: PaginationStrategy = "none"
+    fetch_mode: FetchMode = "full"
+    storage_group: str | None = None
     default_payload: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name", "endpoint_group", "endpoint", "file_prefix")
@@ -56,6 +59,10 @@ class EndpointSpec(ApiBaseModel):
                 raise ValueError(f"Missing path parameter '{key}' for endpoint {self.name}.")
             rendered = rendered.replace(f"{{{key}}}", str(value))
         return rendered
+
+    @property
+    def storage_folder(self) -> str:
+        return self.storage_group or self.endpoint_group
 
 
 class RawFileInfo(ApiBaseModel):

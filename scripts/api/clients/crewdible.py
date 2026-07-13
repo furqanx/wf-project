@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from scripts.api.config import get_api_extract_config
 from scripts.utils.env import get_env, load_dotenv_file
 
 
@@ -42,13 +43,14 @@ class CrewdibleClient:
     @classmethod
     def from_env(cls) -> "CrewdibleClient":
         load_dotenv_file()
+        config = get_api_extract_config()
         return cls(
-            base_url=get_env("CREWDIBLE_BASE_URL", DEFAULT_BASE_URL) or DEFAULT_BASE_URL,
+            base_url=get_env("CREWDIBLE_BASE_URL", config.crewdible.base_url) or config.crewdible.base_url,
             client_id=get_env("CREWDIBLE_CLIENT_ID", required=True) or "",
             client_secret=get_env("CREWDIBLE_CLIENT_SECRET", required=True) or "",
             email=get_env("CREWDIBLE_EMAIL", required=True) or "",
             password=get_env("CREWDIBLE_PASSWORD", required=True) or "",
-            timeout_seconds=int(get_env("CREWDIBLE_TIMEOUT_SECONDS", "60") or "60"),
+            timeout_seconds=config.crewdible.timeout_seconds,
         )
 
     def request_oauth_token(self) -> str:

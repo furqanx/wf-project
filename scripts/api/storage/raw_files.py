@@ -22,7 +22,7 @@ def write_raw_response(
 ) -> RawFileInfo:
     """Write one endpoint fetch result to a dated raw-data folder."""
     fetched_date = fetched_at.date().isoformat()
-    output_dir = Path(raw_root) / spec.endpoint_group / f"fetched_date={fetched_date}"
+    output_dir = Path(raw_root) / spec.storage_folder / f"fetched_date={fetched_date}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = fetched_at.strftime("%Y%m%d_%H%M%S")
@@ -65,6 +65,12 @@ def sha256_file(path: Path) -> str:
 
 
 def count_records(response: dict[str, Any]) -> int:
+    accurate_data = response.get("d")
+    if isinstance(accurate_data, list):
+        return len(accurate_data)
+    if isinstance(accurate_data, dict):
+        return 1 if accurate_data else 0
+
     data = response.get("data")
     if isinstance(data, dict):
         for key in ("items", "lists", "rows", "data"):
