@@ -20,6 +20,7 @@ class StorageConfig(FrozenConfig):
 
     crewdible_raw_root: Path = Field(default=PROJECT_ROOT / "data/api/crewdible")
     accurate_raw_root: Path = Field(default=PROJECT_ROOT / "data/api/accurate")
+    bigseller_raw_root: Path = Field(default=PROJECT_ROOT / "data/api/bigseller")
 
 
 class AccurateConfig(FrozenConfig):
@@ -39,12 +40,21 @@ class CrewdibleConfig(FrozenConfig):
     timeout_seconds: int = 60
 
 
+class BigSellerConfig(FrozenConfig):
+    """BigSeller Open API runtime behavior."""
+
+    base_url: str = "https://api.bigseller.com"
+    timeout_seconds: int = 60
+    default_page_size: int = 50
+
+
 class ApiExtractConfig(FrozenConfig):
     """Runtime configuration for raw API extraction."""
 
     storage: StorageConfig = Field(default_factory=StorageConfig)
     accurate: AccurateConfig = Field(default_factory=AccurateConfig)
     crewdible: CrewdibleConfig = Field(default_factory=CrewdibleConfig)
+    bigseller: BigSellerConfig = Field(default_factory=BigSellerConfig)
 
 
 def get_api_extract_config() -> ApiExtractConfig:

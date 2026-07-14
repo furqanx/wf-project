@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     load_dotenv_file()
     parser = argparse.ArgumentParser(description="Fetch raw API responses to file storage.")
-    parser.add_argument("--source-system", default="crewdible", choices=["crewdible", "accurate"])
+    parser.add_argument("--source-system", default="crewdible", choices=["crewdible", "accurate", "bigseller"])
     parser.add_argument("--group", dest="endpoint_group", default=None)
     parser.add_argument("--endpoint", dest="endpoint_name", default=None)
     parser.add_argument(
@@ -122,6 +122,24 @@ def main() -> None:
             max_pages=args.max_pages,
             allow_manual=args.allow_manual,
         )
+    elif args.source_system == "bigseller":
+        from scripts.api.runners.bigseller import run_bigseller_extract
+
+        records = run_bigseller_extract(
+            endpoint_group=args.endpoint_group,
+            endpoint_name=args.endpoint_name,
+            storage_group_prefix=args.storage_group_prefix,
+            request_params=request_params,
+            fetch_mode=args.fetch_mode,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            raw_root=raw_root,
+            engine=engine,
+            write_manifest=not args.skip_manifest,
+            compress=args.compress,
+            max_pages=args.max_pages,
+            allow_manual=args.allow_manual,
+        )
     else:
         raise NotImplementedError(f"Unsupported source system: {args.source_system}")
 
@@ -149,6 +167,8 @@ def default_raw_root(source_system: str) -> str:
         return str(config.storage.accurate_raw_root)
     if source_system == "crewdible":
         return str(config.storage.crewdible_raw_root)
+    if source_system == "bigseller":
+        return str(config.storage.bigseller_raw_root)
     raise NotImplementedError(f"Unsupported source system: {source_system}")
 
 
