@@ -181,8 +181,10 @@ footer    { visibility: hidden; }
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
+    box-sizing: border-box;
     padding: 14px 16px;
     margin-bottom: 18px;
+    width: 100%;
 }
 .wf-sidebar-brand-title {
     color: #0f172a;
@@ -216,8 +218,11 @@ footer    { visibility: hidden; }
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
+    box-sizing: border-box;
+    display: flex;
     margin-bottom: 8px;
     padding: 8px 10px;
+    width: 100%;
 }
 [data-testid="stSidebar"] [role="radiogroup"] label:hover {
     border-color: #94a3b8;
