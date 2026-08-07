@@ -1653,9 +1653,9 @@ def main():
     #     '👥  Master Partner'
     # ])
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         '📤  Upload Data Sales Online',
-        '📋  Upload Data Sales Offline',
+        # '📋  Upload Data Sales Offline',
         '📊  Status Data',
         '⚙️  Konfigurasi',
         '👥  Master Partner',
@@ -1663,13 +1663,13 @@ def main():
 
     with tab1:
         render_upload_tab(engine)
+    # with tab2:
+    #     render_sales_offline_tab(engine)
     with tab2:
-        render_sales_offline_tab(engine)
-    with tab3:
         render_monitoring_tab(engine)
-    with tab4:
+    with tab3:
         render_config_tab(engine)
-    with tab5:
+    with tab4:
         render_master_partner_tab(engine)
 
 
