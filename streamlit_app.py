@@ -620,28 +620,35 @@ def render_sales_online_transform_control(engine, key_suffix='main'):
 
 # ── Tab 1: Upload ──────────────────────────────────────────────────────────────
 def render_upload_tab(engine):
-    with st.sidebar:
-        st.markdown('### ⚙️ Pengaturan Upload')
-        st.markdown('---')
-        fase = st.selectbox('Fase Data', FASE_OPTIONS, index=0, help='Pilih jenis data yang akan diunggah.')
-        st.caption(f'_{FASE_DESC.get(fase, "")}_')
-        st.markdown(' ')
-        marketplace_label = st.selectbox('Marketplace', list(MARKETPLACE_OPTIONS.keys()), index=0)
-        marketplace = MARKETPLACE_OPTIONS[marketplace_label]
-        st.markdown(' ')
-        stores = load_stores(engine, MARKETPLACE_ID[marketplace])
-        toko = st.selectbox('Toko', stores, help='Pilih toko asal file ini.')
-        st.markdown(' ')
-        # skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
-        skip_loaded = False
-        st.markdown('---')
-        st.markdown(
-            f"<div style='font-size:0.78rem;color:#64748b;'>"
-            f"<b>Target</b><br>"
-            f"{MARKETPLACE_ICON.get(marketplace_label,'')} {marketplace_label} &mdash; {fase}"
-            f"</div>",
-            unsafe_allow_html=True,
+    st.markdown('#### Upload Data Sales Online')
+    st.markdown('<div class="wf-section-title">Pengaturan Upload</div>', unsafe_allow_html=True)
+
+    col_fase, col_marketplace, col_toko = st.columns(3)
+    with col_fase:
+        fase = st.selectbox(
+            'Fase Data',
+            FASE_OPTIONS,
+            index=0,
+            help='Pilih jenis data yang akan diunggah.',
         )
+        st.caption(f'_{FASE_DESC.get(fase, "")}_')
+    with col_marketplace:
+        marketplace_label = st.selectbox(
+            'Marketplace',
+            list(MARKETPLACE_OPTIONS.keys()),
+            index=0,
+        )
+        marketplace = MARKETPLACE_OPTIONS[marketplace_label]
+    with col_toko:
+        stores = load_stores(engine, MARKETPLACE_ID[marketplace])
+        toko = st.selectbox(
+            'Toko',
+            stores,
+            help='Pilih toko asal file ini.',
+        )
+
+    # skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
+    skip_loaded = False
 
     render_stage_panel(
         title='1. Target Upload',
@@ -1645,32 +1652,22 @@ def main():
         st.error(f'Gagal terhubung ke database: {e}')
         return
 
-    # tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    #     '📤  Upload Data', 
-    #     '📦  Crewdible', 
-    #     '📋  Penjualan Offline', 
-    #     '📊  Status Data', 
-    #     '👥  Master Partner'
-    # ])
+    with st.sidebar:
+        st.markdown('### Wellfarm Data Hub')
+        st.markdown('---')
+        page = st.radio(
+            'Halaman',
+            [
+                '📤 Upload Data Sales Online',
+                '⚙️ Konfigurasi',
+            ],
+            label_visibility='collapsed',
+        )
 
-    tab1, tab2 = st.tabs([
-        '📤  Upload Data Sales Online',
-        # '📋  Upload Data Sales Offline',
-        # '📊  Status Data',
-        '⚙️  Konfigurasi',
-        # '👥  Master Partner',
-    ])
-
-    with tab1:
+    if page == '📤 Upload Data Sales Online':
         render_upload_tab(engine)
-    # with tab2:
-    #     render_sales_offline_tab(engine)
-    with tab2:
+    elif page == '⚙️ Konfigurasi':
         render_config_tab(engine)
-    # with tab3:
-    #     render_monitoring_tab(engine)
-    # with tab4:
-    #     render_master_partner_tab(engine)
 
 
 if __name__ == '__main__':
