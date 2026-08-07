@@ -232,6 +232,134 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
 </style>
 """, unsafe_allow_html=True)
 
+
+def inject_dark_theme_styles():
+    st.markdown("""
+    <style>
+    html, body, [data-testid="stAppViewContainer"] {
+        background: #2f3640;
+        color: #f1f5f9;
+    }
+    [data-testid="stHeader"] {
+        background: rgba(47, 54, 64, 0.92);
+    }
+    [data-testid="stToolbar"] {
+        color: #d8dee9;
+    }
+    .block-container {
+        color: #f1f5f9;
+    }
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    label {
+        color: #f1f5f9;
+    }
+    [data-testid="stSidebar"] {
+        background: #353d49;
+        border-right-color: #4b5563;
+    }
+    .wf-header {
+        background: linear-gradient(135deg, #1f6f43 0%, #2e8b57 100%);
+        box-shadow: 0 18px 38px rgba(25, 30, 38, 0.25);
+    }
+    .wf-sidebar-brand,
+    [data-testid="stSidebar"] [role="radiogroup"] label,
+    .wf-stage,
+    .wf-file-card,
+    .wf-stat,
+    .wf-context-card {
+        background: #3b4452;
+        border-color: #55606f;
+    }
+    .wf-sidebar-brand-title,
+    .wf-stage-title,
+    .wf-filename,
+    .wf-context-card strong {
+        color: #ffffff;
+    }
+    .wf-sidebar-brand-subtitle,
+    .wf-sidebar-note,
+    .wf-stage-body,
+    .wf-stat .stat-label {
+        color: #cbd5e1;
+    }
+    .wf-sidebar-note,
+    hr {
+        border-color: #55606f;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {
+        background: #465160;
+        border-color: #687587;
+    }
+    .wf-stage-ready {
+        background: #37465b;
+        border-left-color: #7cb4ff;
+    }
+    .wf-stage-success {
+        background: #334d40;
+        border-left-color: #4ade80;
+    }
+    .wf-stage-warning {
+        background: #504836;
+        border-left-color: #fbbf24;
+    }
+    .wf-stage-running {
+        background: #334e4d;
+        border-left-color: #5eead4;
+    }
+    .wf-stage-badge,
+    .wf-stage-chip {
+        background: #465160;
+        border-color: #64748b;
+        color: #e2e8f0;
+    }
+    .badge-new,
+    .badge-loaded {
+        background: rgba(34, 197, 94, 0.16);
+        color: #86efac;
+    }
+    .badge-partial {
+        background: rgba(245, 158, 11, 0.16);
+        color: #fcd34d;
+    }
+    .badge-anomaly {
+        background: rgba(239, 68, 68, 0.16);
+        color: #fca5a5;
+    }
+    .badge-unknown {
+        background: rgba(148, 163, 184, 0.16);
+        color: #e2e8f0;
+    }
+    .wf-section-title,
+    .wf-sidebar-label {
+        color: #cbd5e1;
+    }
+    [data-baseweb="select"] > div,
+    [data-testid="stFileUploaderDropzone"],
+    [data-testid="stNumberInput"] input,
+    input,
+    textarea {
+        background: #3b4452;
+        border-color: #64748b;
+        color: #f8fafc;
+    }
+    [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stCaptionContainer"] {
+        color: #cbd5e1;
+    }
+    div[data-testid="stAlert"] {
+        background: #3b4452;
+        color: #f1f5f9;
+    }
+    button[kind="primary"] {
+        border-color: #16a34a;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # ── Konstanta ──────────────────────────────────────────────────────────────────
 FASE_OPTIONS = ['ORDER', 'INCOME', 'REPORT']
 
@@ -1725,10 +1853,15 @@ def main():
             ],
             label_visibility='collapsed',
         )
+        st.markdown('<div class="wf-sidebar-label">Tampilan</div>', unsafe_allow_html=True)
+        dark_theme = st.toggle('Mode gelap', key='wf_dark_theme')
         st.markdown(
             '<div class="wf-sidebar-note">Pilih halaman dari menu ini. Pengaturan kerja tersedia di halaman masing-masing.</div>',
             unsafe_allow_html=True,
         )
+
+    if dark_theme:
+        inject_dark_theme_styles()
 
     if page == '📤 Upload Data Sales Online':
         render_upload_tab(engine)
