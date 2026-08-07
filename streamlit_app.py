@@ -174,6 +174,55 @@ footer    { visibility: hidden; }
     background: #f8fafc;
     border-right: 1px solid #e2e8f0;
 }
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 24px;
+}
+.wf-sidebar-brand {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+}
+.wf-sidebar-brand-title {
+    color: #0f172a;
+    font-size: 0.98rem;
+    font-weight: 800;
+    line-height: 1.2;
+}
+.wf-sidebar-brand-subtitle {
+    color: #64748b;
+    font-size: 0.76rem;
+    line-height: 1.45;
+    margin-top: 6px;
+}
+.wf-sidebar-label {
+    color: #94a3b8;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    margin: 12px 0 8px 2px;
+    text-transform: uppercase;
+}
+.wf-sidebar-note {
+    border-top: 1px solid #e2e8f0;
+    color: #64748b;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    margin-top: 20px;
+    padding-top: 14px;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+    border-color: #94a3b8;
+    background: #f9fbfd;
+}
 hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
 </style>
 """, unsafe_allow_html=True)
@@ -1653,8 +1702,16 @@ def main():
         return
 
     with st.sidebar:
-        st.markdown('### Wellfarm Data Hub')
-        st.markdown('---')
+        st.markdown(
+            """
+            <div class="wf-sidebar-brand">
+                <div class="wf-sidebar-brand-title">Wellfarm Data Hub</div>
+                <div class="wf-sidebar-brand-subtitle">Panel internal untuk upload data dan pengaturan sistem.</div>
+            </div>
+            <div class="wf-sidebar-label">Navigasi</div>
+            """,
+            unsafe_allow_html=True,
+        )
         page = st.radio(
             'Halaman',
             [
@@ -1662,6 +1719,10 @@ def main():
                 '⚙️ Konfigurasi',
             ],
             label_visibility='collapsed',
+        )
+        st.markdown(
+            '<div class="wf-sidebar-note">Pilih halaman dari menu ini. Pengaturan kerja tersedia di halaman masing-masing.</div>',
+            unsafe_allow_html=True,
         )
 
     if page == '📤 Upload Data Sales Online':
