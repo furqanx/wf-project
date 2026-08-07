@@ -350,6 +350,32 @@ def inject_dark_theme_styles():
     [data-testid="stCaptionContainer"] {
         color: #cbd5e1;
     }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        color: #172033;
+    }
+    [data-testid="stFileUploaderDropzone"] button:hover {
+        background: #e2e8f0;
+        border-color: #94a3b8;
+        color: #0f172a;
+    }
+    [data-testid="stFileUploaderDropzone"] button svg {
+        color: #172033;
+        fill: currentColor;
+    }
+    [data-testid="stFileUploaderDropzone"] button:disabled,
+    [data-testid="stFileUploaderDropzone"] button[disabled] {
+        background: #e2e8f0;
+        border-color: #cbd5e1;
+        color: #475569;
+        opacity: 1;
+    }
+    [data-testid="stFileUploaderDropzone"] button:disabled svg,
+    [data-testid="stFileUploaderDropzone"] button[disabled] svg {
+        color: #475569;
+        fill: currentColor;
+    }
     div[data-testid="stAlert"] {
         background: #3b4452;
         color: #f1f5f9;
