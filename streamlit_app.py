@@ -1165,6 +1165,16 @@ def render_upload_tab(engine):
         render_sales_online_transform_control(engine, key_suffix='after_upload')
 
 
+def render_crewdible_upload_tab(engine):
+    st.markdown('#### Upload Data Crewdible')
+    render_stage_panel(
+        title='Upload Data Crewdible',
+        status='Belum aktif',
+        body='Halaman ini sudah disiapkan. Workflow upload data Crewdible akan ditambahkan pada tahap berikutnya.',
+        variant='ready',
+    )
+
+
 # # ── Tab 2: Crewdible ───────────────────────────────────────────────────────────
 # def _crewdible_rows_in_db(filename, engine):
 #     try:
@@ -2005,6 +2015,7 @@ def main():
             'Halaman',
             [
                 '📤 Upload Data Sales Online',
+                '📦 Upload Data Crewdible',
                 '⚙️ Konfigurasi',
             ],
             label_visibility='collapsed',
@@ -2021,6 +2032,8 @@ def main():
 
     if page == '📤 Upload Data Sales Online':
         render_upload_tab(engine)
+    elif page == '📦 Upload Data Crewdible':
+        render_crewdible_upload_tab(engine)
     elif page == '⚙️ Konfigurasi':
         render_config_tab(engine)
 
