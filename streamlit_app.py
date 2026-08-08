@@ -17,8 +17,16 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.db_config import get_engine
-from src.file_inspector import check_file_status, check_duplicate_order_ids
-from src.extract_loader import process_order_file, process_income_file, process_report_file, process_crewdible_file
+from src.extract_loader import process_order_file, process_income_file, process_report_file
+from src.file_staging import (
+    FileUploadMetadata,
+    check_file_manifest_status,
+    ensure_file_staging_tables,
+    get_manifest_rows,
+    parse_manifest_ids,
+    set_manifest_transform_status,
+    stage_uploaded_file,
+)
 from src.transform.runner import run as run_transform
 from src.crewdible.runner import run as run_transform_crewdible
 
@@ -449,15 +457,30 @@ def load_stores(_engine, marketplace_id):
 
 
 # ── Background Transform ───────────────────────────────────────────────────────
-def _run_transform_background(marketplace, engine):
-    try:
-        run_transform(marketplace=marketplace, engine=engine)
-    except Exception as e:
-        logging.getLogger().error(f"[TRANSFORM-BG] {marketplace}: {e}")
+def _hydrate_manifest_files_to_db_staging(manifest_ids, engine):
+    """Load selected filesystem-staged files into existing DB staging tables."""
+    rows = get_manifest_rows(engine, manifest_ids)
+    for row in rows:
+        file_path = row['file_path']
+        fase = str(row['fase']).upper()
+        marketplace = row['marketplace']
+        store_name = row['store_name']
+
+        if fase == 'ORDER':
+            process_order_file(file_path, marketplace, engine, nama_toko_override=str(store_name).lower())
+        elif fase == 'INCOME':
+            process_income_file(file_path, marketplace, engine, nama_toko_override=str(store_name).lower())
+        elif fase == 'REPORT':
+            process_report_file(file_path, marketplace, engine, nama_toko_override=str(store_name).lower())
+        else:
+            raise ValueError(f"Fase tidak dikenali untuk manifest_id={row['manifest_id']}: {fase}")
 
 
-def _run_transform_job_background(job_ids, marketplace, engine):
+def _run_transform_job_background(job_ids, marketplace, engine, manifest_ids=None):
+    manifest_ids = manifest_ids or []
     try:
+        set_manifest_transform_status(engine, manifest_ids, 'running')
+        _hydrate_manifest_files_to_db_staging(manifest_ids, engine)
         run_transform(marketplace=marketplace, engine=engine)
         with engine.begin() as conn:
             conn.execute(text("""
@@ -467,6 +490,7 @@ def _run_transform_job_background(job_ids, marketplace, engine):
                     error_message = NULL
                 WHERE job_id = ANY(:job_ids)
             """), {'job_ids': job_ids})
+        set_manifest_transform_status(engine, manifest_ids, 'success', file_status='migrated')
     except Exception as e:
         logging.getLogger().error(f"[TRANSFORM-BG] {marketplace}: {e}")
         with engine.begin() as conn:
@@ -480,6 +504,7 @@ def _run_transform_job_background(job_ids, marketplace, engine):
                 'job_ids': job_ids,
                 'error_message': str(e),
             })
+        set_manifest_transform_status(engine, manifest_ids, 'failed', error_message=str(e))
 
 
 def _run_crewdible_transform_background(engine):
@@ -609,7 +634,7 @@ def render_file_card(filename, status_key, rows_in_db, rows_in_file):
     if rows_in_db > 0 or rows_in_file > 0:
         db_info = (
             f'<span style="font-size:0.78rem;color:#64748b;white-space:nowrap;">'
-            f'DB&nbsp;<b style="color:#1e293b">{rows_in_db:,}</b>'
+            f'Tercatat&nbsp;<b style="color:#1e293b">{rows_in_db:,}</b>'
             f'&nbsp;/&nbsp;File&nbsp;<b style="color:#1e293b">{rows_in_file:,}</b>&nbsp;baris'
             f'</span>'
         )
@@ -675,10 +700,15 @@ def _normalize_source_filenames(value):
     return []
 
 
+def _normalize_manifest_ids(value):
+    return parse_manifest_ids(value)
+
+
 def get_sales_online_transform_jobs(engine, statuses):
+    ensure_file_staging_tables(engine)
     with engine.connect() as conn:
         result = conn.execute(text("""
-            SELECT job_id, marketplace, fase, source_filenames, created_at
+            SELECT job_id, marketplace, fase, source_filenames, source_manifest_ids, created_at
             FROM staging.transform_job_log
             WHERE job_type = 'sales_online'
               AND status = ANY(:statuses)
@@ -690,23 +720,33 @@ def get_sales_online_transform_jobs(engine, statuses):
                 'marketplace': r.marketplace,
                 'fase': r.fase,
                 'source_filenames': _normalize_source_filenames(r.source_filenames),
+                'source_manifest_ids': _normalize_manifest_ids(r.source_manifest_ids),
                 'created_at': r.created_at,
             }
             for r in result
         ]
 
 
-def create_sales_online_transform_job(engine, marketplace, fase, filenames):
+def create_sales_online_transform_job(engine, marketplace, fase, filenames, manifest_ids):
+    ensure_file_staging_tables(engine)
     with engine.begin() as conn:
         conn.execute(text("""
             INSERT INTO staging.transform_job_log
-                (job_type, marketplace, fase, status, source_filenames)
+                (job_type, marketplace, fase, status, source_filenames, source_manifest_ids)
             VALUES
-                ('sales_online', :marketplace, :fase, 'pending', CAST(:source_filenames AS jsonb))
+                (
+                    'sales_online',
+                    :marketplace,
+                    :fase,
+                    'pending',
+                    CAST(:source_filenames AS jsonb),
+                    CAST(:source_manifest_ids AS jsonb)
+                )
         """), {
             'marketplace': marketplace,
             'fase': fase,
             'source_filenames': json.dumps(filenames),
+            'source_manifest_ids': json.dumps(manifest_ids),
         })
 
 
@@ -745,9 +785,12 @@ def render_sales_online_transform_control(engine, key_suffix='main'):
 
     for marketplace, marketplace_jobs in jobs_by_marketplace.items():
         files = []
+        manifest_ids = []
         for job in marketplace_jobs:
             files.extend(job['source_filenames'])
+            manifest_ids.extend(job.get('source_manifest_ids') or [])
         files = list(dict.fromkeys(files))
+        manifest_ids = list(dict.fromkeys(manifest_ids))
         marketplace_label = marketplace.upper()
 
         render_stage_panel(
@@ -782,13 +825,14 @@ def render_sales_online_transform_control(engine, key_suffix='main'):
                         error_message = NULL
                     WHERE job_id = ANY(:job_ids)
                 """), {'job_ids': job_ids})
+            set_manifest_transform_status(engine, manifest_ids, 'running')
             st.session_state[running_key] = True
             st.session_state['sales_online_transform_running_marketplace'] = marketplace
             load_staging_summary.clear()
             load_timeseries.clear()
             threading.Thread(
                 target=_run_transform_job_background,
-                args=(job_ids, marketplace, engine),
+                args=(job_ids, marketplace, engine, manifest_ids),
                 daemon=True,
             ).start()
             render_stage_panel(
@@ -801,47 +845,36 @@ def render_sales_online_transform_control(engine, key_suffix='main'):
 
 
 # ── Tab 1: Upload ──────────────────────────────────────────────────────────────
+def _uploaded_file_key(index, uploaded_file):
+    return f"{index}_{uploaded_file.name}_{getattr(uploaded_file, 'size', 0)}"
+
+
+def _metadata_from_row(row):
+    return FileUploadMetadata(
+        fase=row['fase'],
+        marketplace=row['marketplace'],
+        marketplace_label=row['marketplace_label'],
+        store_name=row['store_name'],
+    )
+
+
+def _render_mapping_header():
+    h_file, h_fase, h_marketplace, h_store = st.columns([3.2, 1.15, 1.5, 2])
+    h_file.caption('File')
+    h_fase.caption('Fase Data')
+    h_marketplace.caption('Marketplace')
+    h_store.caption('Toko')
+
+
 def render_upload_tab(engine):
+    ensure_file_staging_tables(engine)
+
     st.markdown('#### Upload Data Sales Online')
-    st.markdown('<div class="wf-section-title">Pengaturan Upload</div>', unsafe_allow_html=True)
-
-    col_fase, col_marketplace, col_toko = st.columns(3)
-    with col_fase:
-        fase = st.selectbox(
-            'Fase Data',
-            FASE_OPTIONS,
-            index=0,
-            help='Pilih jenis data yang akan diunggah.',
-        )
-        st.caption(f'_{FASE_DESC.get(fase, "")}_')
-    with col_marketplace:
-        marketplace_label = st.selectbox(
-            'Marketplace',
-            list(MARKETPLACE_OPTIONS.keys()),
-            index=0,
-        )
-        marketplace = MARKETPLACE_OPTIONS[marketplace_label]
-    with col_toko:
-        stores = load_stores(engine, MARKETPLACE_ID[marketplace])
-        toko = st.selectbox(
-            'Toko',
-            stores,
-            help='Pilih toko asal file ini.',
-        )
-
-    # skip_loaded = st.checkbox('Lewati file yang sudah dimuat penuh', value=True)
-    skip_loaded = False
-
     render_stage_panel(
-        title='1. Target Upload',
-        status='Dipilih',
-        body='File yang diunggah akan dibaca sesuai target berikut.',
+        title='1. Upload File',
+        status='Siap',
+        body='Upload beberapa file Excel, lalu lengkapi fase, marketplace, dan toko untuk masing-masing file.',
         variant='ready',
-        chips=[
-            f'Fase: {fase}',
-            f'Marketplace: {marketplace_label}',
-            f'Toko: {toko}',
-        ],
     )
 
     uploaded_files = st.file_uploader(
@@ -850,6 +883,12 @@ def render_upload_tab(engine):
         accept_multiple_files=True,
         key='file_uploader',
     )
+
+    upload_signature = tuple((uf.name, getattr(uf, 'size', 0)) for uf in uploaded_files or [])
+    if st.session_state.get('sales_upload_signature') != upload_signature:
+        st.session_state['sales_upload_signature'] = upload_signature
+        st.session_state['sales_upload_check_results'] = {}
+        st.session_state['sales_batch_staged_signature'] = None
 
     if not uploaded_files:
         st.markdown(
@@ -862,119 +901,227 @@ def render_upload_tab(engine):
         render_sales_online_transform_control(engine, key_suffix='top')
         return
 
-    tmp_dir = tempfile.mkdtemp()
-    file_statuses = []
-    with st.spinner('Memeriksa status file terhadap database…'):
-        for uf in uploaded_files:
-            tmp_path = os.path.join(tmp_dir, uf.name)
-            with open(tmp_path, 'wb') as f:
-                f.write(uf.getbuffer())
-            status = check_file_status(
-                filename=uf.name, file_path=tmp_path,
-                fase=fase, marketplace=marketplace, engine=engine,
+    st.markdown('<div class="wf-section-title">Mapping Per File</div>', unsafe_allow_html=True)
+    _render_mapping_header()
+
+    mapping_rows = []
+    for idx, uf in enumerate(uploaded_files):
+        file_key = _uploaded_file_key(idx, uf)
+        c_file, c_fase, c_marketplace, c_store = st.columns([3.2, 1.15, 1.5, 2])
+
+        with c_file:
+            st.markdown(f"<div class='wf-filename'>{html.escape(uf.name)}</div>", unsafe_allow_html=True)
+
+        with c_fase:
+            fase = st.selectbox(
+                'Fase Data',
+                ['Pilih fase'] + FASE_OPTIONS,
+                key=f'fase_{file_key}',
+                label_visibility='collapsed',
             )
-            file_statuses.append((uf, status, tmp_path))
+
+        with c_marketplace:
+            marketplace_label = st.selectbox(
+                'Marketplace',
+                ['Pilih marketplace'] + list(MARKETPLACE_OPTIONS.keys()),
+                key=f'marketplace_{file_key}',
+                label_visibility='collapsed',
+            )
+
+        marketplace = MARKETPLACE_OPTIONS.get(marketplace_label)
+        with c_store:
+            if marketplace:
+                store_options = ['Pilih toko'] + load_stores(engine, MARKETPLACE_ID[marketplace])
+            else:
+                store_options = ['Pilih toko']
+            store_name = st.selectbox(
+                'Toko',
+                store_options,
+                key=f'store_{file_key}_{marketplace or "none"}',
+                label_visibility='collapsed',
+            )
+
+        is_complete = (
+            fase in FASE_OPTIONS
+            and marketplace is not None
+            and store_name != 'Pilih toko'
+        )
+        mapping_rows.append({
+            'file_key': file_key,
+            'uploaded_file': uf,
+            'fase': fase if fase in FASE_OPTIONS else '',
+            'marketplace': marketplace or '',
+            'marketplace_label': marketplace_label if marketplace else '',
+            'store_name': store_name if store_name != 'Pilih toko' else '',
+            'is_complete': is_complete,
+        })
+
+    incomplete_count = sum(1 for row in mapping_rows if not row['is_complete'])
+    if incomplete_count:
+        st.info(f'{incomplete_count} file belum lengkap metadata-nya. Lengkapi dulu sebelum cek file.')
+
+    col_check_info, col_check_button = st.columns([4, 1])
+    with col_check_info:
+        st.caption('Pemeriksaan file akan mencocokkan checksum dan metadata file terhadap manifest staging.')
+    with col_check_button:
+        check_button = st.button(
+            'Cek File',
+            type='primary',
+            use_container_width=True,
+            disabled=bool(incomplete_count),
+        )
+
+    if check_button:
+        tmp_dir = tempfile.mkdtemp()
+        check_results = {}
+        with st.spinner('Memeriksa status file terhadap manifest staging…'):
+            for row in mapping_rows:
+                if not row['is_complete']:
+                    continue
+                uf = row['uploaded_file']
+                tmp_path = os.path.join(tmp_dir, uf.name)
+                with open(tmp_path, 'wb') as f:
+                    f.write(uf.getbuffer())
+                try:
+                    status = check_file_manifest_status(
+                        filename=uf.name,
+                        file_path=tmp_path,
+                        metadata=_metadata_from_row(row),
+                        engine=engine,
+                    )
+                except Exception as e:
+                    logging.getLogger().error(f'GAGAL cek file {uf.name}: {e}')
+                    status = {
+                        'status': 'unknown',
+                        'rows_in_db': 0,
+                        'rows_in_file': 0,
+                        'table': 'staging.file_manifest',
+                    }
+                check_results[row['file_key']] = status
+        st.session_state['sales_upload_check_results'] = check_results
+
+    check_results = st.session_state.get('sales_upload_check_results', {})
+    checked_rows = [
+        (row, check_results[row['file_key']])
+        for row in mapping_rows
+        if row['file_key'] in check_results
+    ]
+
+    if not checked_rows:
+        render_sales_online_transform_control(engine, key_suffix='before_check')
+        return
 
     counts = {}
-    for _, s, _ in file_statuses:
-        counts[s['status']] = counts.get(s['status'], 0) + 1
+    for _, status in checked_rows:
+        counts[status['status']] = counts.get(status['status'], 0) + 1
 
     render_stage_panel(
         title='2. Pemeriksaan File',
         status='Selesai dicek',
-        body='File sudah dianalisis terhadap database. Data belum masuk staging sebelum tombol tahap berikutnya ditekan.',
+        body='File sudah dianalisis terhadap manifest. Data belum disimpan ke staging filesystem sebelum tombol tahap berikutnya ditekan.',
         variant='ready',
         chips=[
-            f'{len(file_statuses)} file',
+            f'{len(checked_rows)} file',
             f"{counts.get('new', 0)} baru",
-            f"{counts.get('fully_loaded', 0)} sudah dimuat",
+            f"{counts.get('fully_loaded', 0)} sudah tercatat",
             f"{counts.get('partial', 0)} sebagian",
             f"{counts.get('anomaly', 0)} anomali",
         ],
     )
 
-    # Tampilan RINGKASAN
-    st.markdown(f'<div class="wf-section-title">Ringkasan — {len(file_statuses)} file</div>',
+    st.markdown(f'<div class="wf-section-title">Ringkasan — {len(checked_rows)} file</div>',
                 unsafe_allow_html=True)
     st.markdown(render_stat_row(counts), unsafe_allow_html=True)
 
     st.markdown('<div class="wf-section-title">Detail Status Per File</div>', unsafe_allow_html=True)
-    st.markdown(
-        ''.join(render_file_card(uf.name, s['status'], s['rows_in_db'], s['rows_in_file'])
-                for uf, s, _ in file_statuses),
-        unsafe_allow_html=True,
-    )
+    detail_cards = []
+    for row, status in checked_rows:
+        metadata = (
+            f"{row['fase']} · {row['marketplace_label']} · {row['store_name']}"
+        )
+        detail_cards.append(
+            render_file_card(
+                f"{row['uploaded_file'].name} — {metadata}",
+                status['status'],
+                status['rows_in_db'],
+                status['rows_in_file'],
+            )
+        )
+    st.markdown(''.join(detail_cards), unsafe_allow_html=True)
 
-    anomaly_files = [uf.name for uf, s, _ in file_statuses if s['status'] == 'anomaly']
-    partial_files  = [uf.name for uf, s, _ in file_statuses if s['status'] == 'partial']
+    anomaly_files = [row['uploaded_file'].name for row, s in checked_rows if s['status'] == 'anomaly']
+    partial_files = [row['uploaded_file'].name for row, s in checked_rows if s['status'] == 'partial']
     if anomaly_files:
         st.warning(
             '**⚠ Anomali Terdeteksi**  \n'
-            'File berikut memiliki lebih banyak baris di DB daripada di file aslinya:  \n'
+            'File berikut memiliki nama/metadata yang pernah tercatat, tetapi isi atau jumlah barisnya tidak cocok:  \n'
             + '  \n'.join(f'• `{f}`' for f in anomaly_files)
         )
     if partial_files:
         st.info(
-            '**◑ File Dimuat Sebagian**  \n'
-            'File berikut hanya sebagian masuk ke database:  \n'
+            '**◑ File Terdeteksi Sebagian**  \n'
+            'File berikut punya nama/metadata yang pernah tercatat, tetapi file saat ini memiliki lebih banyak baris:  \n'
             + '  \n'.join(f'• `{f}`' for f in partial_files)
         )
 
-    to_process    = [item for item in file_statuses
-                    if not (skip_loaded and item[1]['status'] == 'fully_loaded')]
-    skipped_count = len(file_statuses) - len(to_process)
+    to_stage = [
+        (row, status)
+        for row, status in checked_rows
+        if status['status'] in {'new', 'partial'}
+    ]
+    skipped_count = len(checked_rows) - len(to_stage)
+    batch_already_staged = st.session_state.get('sales_batch_staged_signature') == upload_signature
 
     st.markdown('<hr>', unsafe_allow_html=True)
     render_stage_panel(
-        title='3. Input ke Staging',
-        status='Siap diproses' if to_process else 'Tidak ada file baru',
+        title='3. Simpan ke File Staging',
+        status='Siap disimpan' if to_stage else 'Tidak ada file baru',
         body=(
-            'Tahap ini hanya memasukkan file ke staging. '
-            'Data belum masuk tabel utama atau dashboard sampai tahap migrasi dijalankan.'
+            'Tahap ini menyimpan file asli ke filesystem staging dan mencatat metadata-nya ke PostgreSQL. '
+            'Isi file belum dimasukkan ke tabel utama sampai tahap migrasi dijalankan.'
         ),
-        variant='ready' if to_process else 'success',
-        chips=[f'{len(to_process)} file akan masuk staging'],
+        variant='ready' if to_stage else 'success',
+        chips=[f'{len(to_stage)} file akan disimpan', f'{skipped_count} file dilewati'],
     )
+
     col_info, col_btn = st.columns([4, 1])
     with col_info:
-        if not to_process:
-            st.success('Semua file sudah dimuat penuh. Tidak ada yang perlu diproses.')
-        elif skipped_count > 0:
-            st.caption(f'{skipped_count} file dilewati · **{len(to_process)} file akan diproses**')
+        if batch_already_staged:
+            st.success('Batch ini sudah disimpan ke file staging.')
+        elif not to_stage:
+            st.success('Tidak ada file baru yang perlu disimpan ke staging.')
         else:
-            st.caption(f'**{len(to_process)} file akan diproses**')
+            st.caption(f'**{len(to_stage)} file valid akan disimpan ke file staging**')
     with col_btn:
-        # PROCESS BUTTON
-        run_button = st.button(
-            f'Masukkan {len(to_process)} File ke Staging',
+        stage_button = st.button(
+            f'Simpan {len(to_stage)} File',
             type='primary',
             use_container_width=True,
-            disabled=(not to_process),
+            disabled=(not to_stage or batch_already_staged),
         )
 
-    if not to_process or not run_button:
+    if not to_stage or not stage_button:
         render_sales_online_transform_control(engine, key_suffix='after_check')
         return
 
-    ############################# INSERTION PROCESS #############################
-
     st.session_state['log_lines'] = []
-    st.markdown('<div class="wf-section-title">Progress Input ke Staging</div>', unsafe_allow_html=True)
-    progress_bar  = st.progress(0, text='Memulai…')
+    st.markdown('<div class="wf-section-title">Progress Simpan ke File Staging</div>', unsafe_allow_html=True)
+    progress_bar = st.progress(0, text='Memulai…')
     log_container = st.empty()
-    total, errors = len(to_process), []
+    total, errors, staged_rows = len(to_stage), [], []
 
-    for idx, (uf, _, tmp_path) in enumerate(to_process): # debugging to_process ini
+    for idx, (row, _) in enumerate(to_stage):
+        uf = row['uploaded_file']
         progress_bar.progress(idx / total, text=f'({idx+1}/{total})  {uf.name}')
         try:
-            if fase == 'ORDER':
-                process_order_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
-            elif fase == 'INCOME':
-                process_income_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
-            elif fase == 'REPORT':
-                process_report_file(tmp_path, marketplace, engine, nama_toko_override=str(toko).lower() if toko else None)
+            staged = stage_uploaded_file(
+                uploaded_file=uf,
+                metadata=_metadata_from_row(row),
+                engine=engine,
+            )
+            staged_rows.append({**row, **staged})
         except Exception as e:
-            logging.getLogger().error(f'GAGAL memproses {uf.name}: {e}')
+            logging.getLogger().error(f'GAGAL menyimpan {uf.name} ke file staging: {e}')
             errors.append(uf.name)
 
     progress_bar.progress(1.0, text='Selesai!')
@@ -989,22 +1136,31 @@ def render_upload_tab(engine):
     if errors:
         st.error(f'**Proses selesai dengan {len(errors)} error.**  \n' + '  \n'.join(f'• `{f}`' for f in errors))
     else:
+        st.session_state['sales_batch_staged_signature'] = upload_signature
         render_stage_panel(
-            title='3. Input ke Staging',
+            title='3. Simpan ke File Staging',
             status='Berhasil',
-            body='File berhasil dimasukkan ke staging. Lanjutkan ke migrasi jika data sudah siap masuk tabel utama.',
+            body='File berhasil disimpan ke filesystem staging dan metadata-nya tercatat di manifest.',
             variant='success',
-            chips=[f'{total} file masuk staging'],
+            chips=[f'{total} file tersimpan'],
         )
 
     if sukses > 0:
         st.session_state['sales_online_transform_running'] = False
-        create_sales_online_transform_job(
-            engine=engine,
-            marketplace=marketplace,
-            fase=fase,
-            filenames=[uf.name for uf, _, _ in to_process],
-        )
+        jobs_by_marketplace = {}
+        for row in staged_rows:
+            jobs_by_marketplace.setdefault(row['marketplace'], []).append(row)
+
+        for marketplace, rows in jobs_by_marketplace.items():
+            fases = sorted({r['fase'] for r in rows})
+            create_sales_online_transform_job(
+                engine=engine,
+                marketplace=marketplace,
+                fase=fases[0] if len(fases) == 1 else 'MIXED',
+                filenames=[r['staged_filename'] for r in rows],
+                manifest_ids=[r['manifest_id'] for r in rows],
+            )
+
         st.markdown('<hr>', unsafe_allow_html=True)
         render_sales_online_transform_control(engine, key_suffix='after_upload')
 
