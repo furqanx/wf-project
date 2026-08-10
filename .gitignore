@@ -33,13 +33,13 @@ Dokumentasi BigSeller Open API Interface.pdf
 NOTES.md
 warehouses info contract.txt
 
+# data/api
 data/lazada
 data/shopee
 data/tiktok-tokopedia
-data/staging/
+data/crewdible
 
 docs/wellfarm.drawio
-
 
 data/CREWDIBLE
 data/CREWDIBLE_STANDARDIZED
