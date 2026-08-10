@@ -61,6 +61,9 @@ def ensure_file_staging_tables(engine):
         conn.execute(text("""
             ALTER TABLE staging.file_manifest
                 ADD COLUMN IF NOT EXISTS source_system TEXT NOT NULL DEFAULT 'sales_online',
+                ADD COLUMN IF NOT EXISTS data_category TEXT,
+                ADD COLUMN IF NOT EXISTS period_year INTEGER,
+                ADD COLUMN IF NOT EXISTS period_month INTEGER,
                 ADD COLUMN IF NOT EXISTS marketplace TEXT,
                 ADD COLUMN IF NOT EXISTS fase TEXT,
                 ADD COLUMN IF NOT EXISTS store_name TEXT,
@@ -91,6 +94,16 @@ def ensure_file_staging_tables(engine):
         conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_file_manifest_transform_status
             ON staging.file_manifest (source_system, transform_status, marketplace)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_file_manifest_source_period
+            ON staging.file_manifest (
+                source_system,
+                data_category,
+                period_year,
+                period_month,
+                transform_status
+            )
         """))
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS staging.transform_job_log (

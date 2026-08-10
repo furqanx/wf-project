@@ -9,6 +9,7 @@ import tempfile
 import threading
 import json
 import html
+import re
 import pandas as pd
 import altair as alt
 import streamlit as st
@@ -17,6 +18,12 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.db_config import get_engine
+from src.crewdible_file_staging import (
+    CREWDIBLE_STAGING_ROOT,
+    CrewdibleUploadMetadata,
+    check_crewdible_manifest_status,
+    stage_crewdible_uploaded_file,
+)
 from src.extract_loader import process_order_file, process_income_file, process_report_file
 from src.file_staging import (
     FileUploadMetadata,
@@ -397,6 +404,7 @@ STATUS_META = {
     'fully_loaded': ('✔', 'Sudah Dimuat Penuh',  'badge-loaded'),
     'partial':      ('◑', 'Dimuat Sebagian',     'badge-partial'),
     'anomaly':      ('⚠', 'Anomali',             'badge-anomaly'),
+    'invalid':      ('✕', 'Format Tidak Valid',  'badge-anomaly'),
     'unknown':      ('?', 'Tidak Dikenali',       'badge-unknown'),
 }
 
@@ -1165,13 +1173,333 @@ def render_upload_tab(engine):
         render_sales_online_transform_control(engine, key_suffix='after_upload')
 
 
+CREWDIBLE_MONTH_OPTIONS = {
+    'Tahunan / semua bulan': None,
+    'Januari': 1,
+    'Februari': 2,
+    'Maret': 3,
+    'April': 4,
+    'Mei': 5,
+    'Juni': 6,
+    'Juli': 7,
+    'Agustus': 8,
+    'September': 9,
+    'Oktober': 10,
+    'November': 11,
+    'Desember': 12,
+}
+
+
+def _guess_crewdible_period(filename):
+    lower_name = filename.lower()
+    year_match = re.search(r'(20\d{2})', lower_name)
+    guessed_year = int(year_match.group(1)) if year_match else pd.Timestamp.now().year
+
+    month_aliases = {
+        'januari': 1, 'jan': 1, '_01': 1, '-01': 1,
+        'februari': 2, 'feb': 2, '_02': 2, '-02': 2,
+        'maret': 3, 'mar': 3, '_03': 3, '-03': 3,
+        'april': 4, 'apr': 4, '_04': 4, '-04': 4,
+        'mei': 5, 'may': 5, '_05': 5, '-05': 5,
+        'juni': 6, 'jun': 6, '_06': 6, '-06': 6,
+        'juli': 7, 'jul': 7, '_07': 7, '-07': 7,
+        'agustus': 8, 'aug': 8, '_08': 8, '-08': 8,
+        'september': 9, 'sep': 9, '_09': 9, '-09': 9,
+        'oktober': 10, 'oct': 10, '_10': 10, '-10': 10,
+        'november': 11, 'nov': 11, '_11': 11, '-11': 11,
+        'desember': 12, 'dec': 12, '_12': 12, '-12': 12,
+    }
+    guessed_month = None
+    for token, month in month_aliases.items():
+        if token in lower_name:
+            guessed_month = month
+            break
+
+    return guessed_year, guessed_month
+
+
+def _crewdible_month_label(month):
+    for label, value in CREWDIBLE_MONTH_OPTIONS.items():
+        if value == month:
+            return label
+    return 'Tahunan / semua bulan'
+
+
+def _crewdible_metadata_from_row(row):
+    return CrewdibleUploadMetadata(
+        period_year=int(row['period_year']),
+        period_month=row['period_month'],
+    )
+
+
+def _render_crewdible_mapping_header():
+    h_file, h_year, h_month = st.columns([4, 1, 1.5])
+    h_file.caption('File')
+    h_year.caption('Tahun')
+    h_month.caption('Bulan')
+
+
 def render_crewdible_upload_tab(engine):
+    ensure_file_staging_tables(engine)
+
     st.markdown('#### Upload Data Crewdible')
     render_stage_panel(
-        title='Upload Data Crewdible',
-        status='Belum aktif',
-        body='Halaman ini sudah disiapkan. Workflow upload data Crewdible akan ditambahkan pada tahap berikutnya.',
+        title='1. Upload File',
+        status='Siap',
+        body='Upload file transaksi Crewdible. Gunakan file yang sudah seragam: sheet Transaction, header di baris pertama.',
         variant='ready',
+    )
+
+    with st.expander('Struktur folder penyimpanan di VPS', expanded=False):
+        st.code(
+            str(CREWDIBLE_STAGING_ROOT)
+            + '/transaction/year=YYYY/month=MM/uploaded_date=YYYY-MM-DD/crewdible_transaction_YYYY_MM__nama_file.xlsx',
+            language=None,
+        )
+        st.caption(
+            'Jika file tahunan, folder bulan memakai `month=all`. '
+            'Root folder bisa diganti lewat environment variable `CREWDIBLE_FILE_STAGING_ROOT`.'
+        )
+
+    uploaded_files = st.file_uploader(
+        'Pilih satu atau beberapa file Excel Crewdible (.xlsx / .xls)',
+        type=['xlsx', 'xls'],
+        accept_multiple_files=True,
+        key='crewdible_file_uploader',
+    )
+
+    upload_signature = tuple((uf.name, getattr(uf, 'size', 0)) for uf in uploaded_files or [])
+    if st.session_state.get('crewdible_upload_signature') != upload_signature:
+        st.session_state['crewdible_upload_signature'] = upload_signature
+        st.session_state['crewdible_upload_check_results'] = {}
+        st.session_state['crewdible_batch_staged_signature'] = None
+
+    if not uploaded_files:
+        st.markdown(
+            "<div style='text-align:center;padding:40px 0;color:#94a3b8;font-size:0.9rem;'>"
+            "📂&nbsp; Belum ada file Crewdible yang dipilih.<br>"
+            "<span style='font-size:0.8rem;'>Klik tombol di atas atau seret file ke sini.</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown('<div class="wf-section-title">Mapping Per File</div>', unsafe_allow_html=True)
+    _render_crewdible_mapping_header()
+
+    current_year = pd.Timestamp.now().year
+    year_options = list(range(2023, current_year + 2))
+    month_labels = list(CREWDIBLE_MONTH_OPTIONS.keys())
+    mapping_rows = []
+
+    for idx, uf in enumerate(uploaded_files):
+        file_key = _uploaded_file_key(idx, uf)
+        guessed_year, guessed_month = _guess_crewdible_period(uf.name)
+        if guessed_year not in year_options:
+            year_options.append(guessed_year)
+            year_options = sorted(set(year_options))
+
+        c_file, c_year, c_month = st.columns([4, 1, 1.5])
+        with c_file:
+            st.markdown(f"<div class='wf-filename'>{html.escape(uf.name)}</div>", unsafe_allow_html=True)
+        with c_year:
+            year = st.selectbox(
+                'Tahun',
+                year_options,
+                index=year_options.index(guessed_year),
+                key=f'crewdible_year_{file_key}',
+                label_visibility='collapsed',
+            )
+        with c_month:
+            default_month_label = _crewdible_month_label(guessed_month)
+            month_label = st.selectbox(
+                'Bulan',
+                month_labels,
+                index=month_labels.index(default_month_label),
+                key=f'crewdible_month_{file_key}',
+                label_visibility='collapsed',
+            )
+
+        mapping_rows.append({
+            'file_key': file_key,
+            'uploaded_file': uf,
+            'period_year': year,
+            'period_month': CREWDIBLE_MONTH_OPTIONS[month_label],
+            'is_complete': True,
+        })
+
+    col_check_info, col_check_button = st.columns([4, 1])
+    with col_check_info:
+        st.caption('Pemeriksaan file akan membaca sheet/header, menghitung baris, dan mengecek duplikasi checksum di manifest staging.')
+    with col_check_button:
+        check_button = st.button(
+            'Cek File',
+            type='primary',
+            use_container_width=True,
+            key='crewdible_check_button',
+        )
+
+    if check_button:
+        tmp_dir = tempfile.mkdtemp()
+        check_results = {}
+        with st.spinner('Memeriksa file Crewdible…'):
+            for row in mapping_rows:
+                uf = row['uploaded_file']
+                tmp_path = os.path.join(tmp_dir, uf.name)
+                with open(tmp_path, 'wb') as f:
+                    f.write(uf.getbuffer())
+                try:
+                    status = check_crewdible_manifest_status(
+                        filename=uf.name,
+                        file_path=tmp_path,
+                        metadata=_crewdible_metadata_from_row(row),
+                        engine=engine,
+                    )
+                except Exception as e:
+                    logging.getLogger().error(f'GAGAL cek file Crewdible {uf.name}: {e}')
+                    status = {
+                        'status': 'unknown',
+                        'rows_in_db': 0,
+                        'rows_in_file': 0,
+                        'inspection': {'error_message': str(e), 'transaction_rows': 0, 'missing_headers': []},
+                        'table': 'staging.file_manifest',
+                    }
+                check_results[row['file_key']] = status
+        st.session_state['crewdible_upload_check_results'] = check_results
+
+    check_results = st.session_state.get('crewdible_upload_check_results', {})
+    checked_rows = [
+        (row, check_results[row['file_key']])
+        for row in mapping_rows
+        if row['file_key'] in check_results
+    ]
+
+    if not checked_rows:
+        return
+
+    counts = {}
+    for _, status in checked_rows:
+        counts[status['status']] = counts.get(status['status'], 0) + 1
+
+    render_stage_panel(
+        title='2. Pemeriksaan File',
+        status='Selesai dicek',
+        body='File sudah dicek terhadap format Crewdible dan manifest. File belum disimpan sebelum tombol tahap berikutnya ditekan.',
+        variant='ready',
+        chips=[
+            f'{len(checked_rows)} file',
+            f"{counts.get('new', 0)} baru",
+            f"{counts.get('fully_loaded', 0)} sudah tercatat",
+            f"{counts.get('invalid', 0)} tidak valid",
+        ],
+    )
+
+    st.markdown('<div class="wf-section-title">Detail Status Per File</div>', unsafe_allow_html=True)
+    detail_cards = []
+    invalid_messages = []
+    for row, status in checked_rows:
+        inspection = status.get('inspection') or {}
+        period = _crewdible_metadata_from_row(row).period_label
+        transaction_rows = int(inspection.get('transaction_rows') or 0)
+        label = (
+            f"{row['uploaded_file'].name} — Transaction · Periode {period} "
+            f"· {transaction_rows:,} transaksi"
+        )
+        detail_cards.append(
+            render_file_card(
+                label,
+                status['status'],
+                status['rows_in_db'],
+                status['rows_in_file'],
+            )
+        )
+        if status['status'] == 'invalid':
+            missing = inspection.get('missing_headers') or []
+            error_message = inspection.get('error_message') or 'Format file tidak valid.'
+            invalid_messages.append(
+                f"• `{row['uploaded_file'].name}`: {error_message}"
+                + (f" Kolom kurang: `{', '.join(missing)}`" if missing else "")
+            )
+
+    st.markdown(''.join(detail_cards), unsafe_allow_html=True)
+    if invalid_messages:
+        st.warning('**File tidak valid tidak akan disimpan.**  \n' + '  \n'.join(invalid_messages))
+
+    to_stage = [
+        (row, status)
+        for row, status in checked_rows
+        if status['status'] in {'new', 'partial'}
+    ]
+    skipped_count = len(checked_rows) - len(to_stage)
+    batch_already_staged = st.session_state.get('crewdible_batch_staged_signature') == upload_signature
+
+    st.markdown('<hr>', unsafe_allow_html=True)
+    render_stage_panel(
+        title='3. Simpan ke File Staging',
+        status='Siap disimpan' if to_stage else 'Tidak ada file baru',
+        body='Tahap ini menyimpan file Crewdible ke filesystem staging dan mencatat metadata-nya ke PostgreSQL manifest.',
+        variant='ready' if to_stage else 'success',
+        chips=[f'{len(to_stage)} file akan disimpan', f'{skipped_count} file dilewati'],
+    )
+
+    col_info, col_btn = st.columns([4, 1])
+    with col_info:
+        if batch_already_staged:
+            st.success('Batch Crewdible ini sudah disimpan ke file staging.')
+        elif not to_stage:
+            st.success('Tidak ada file Crewdible baru yang perlu disimpan ke staging.')
+        else:
+            st.caption(f'**{len(to_stage)} file valid akan disimpan ke file staging Crewdible**')
+    with col_btn:
+        stage_button = st.button(
+            f'Simpan {len(to_stage)} File',
+            type='primary',
+            use_container_width=True,
+            disabled=(not to_stage or batch_already_staged),
+            key='crewdible_stage_button',
+        )
+
+    if not to_stage or not stage_button:
+        return
+
+    progress_bar = st.progress(0, text='Memulai…')
+    total, errors, staged_rows = len(to_stage), [], []
+    for idx, (row, _) in enumerate(to_stage):
+        uf = row['uploaded_file']
+        progress_bar.progress(idx / total, text=f'({idx + 1}/{total}) {uf.name}')
+        try:
+            staged = stage_crewdible_uploaded_file(
+                uploaded_file=uf,
+                metadata=_crewdible_metadata_from_row(row),
+                engine=engine,
+            )
+            staged_rows.append(staged)
+        except Exception as e:
+            logging.getLogger().error(f'GAGAL menyimpan file Crewdible {uf.name}: {e}')
+            errors.append(f'{uf.name}: {e}')
+    progress_bar.progress(1.0, text='Selesai!')
+
+    if errors:
+        st.error('**Sebagian file gagal disimpan.**  \n' + '  \n'.join(f'• `{e}`' for e in errors))
+        return
+
+    st.session_state['crewdible_batch_staged_signature'] = upload_signature
+    render_stage_panel(
+        title='3. Simpan ke File Staging',
+        status='Berhasil',
+        body='File Crewdible berhasil disimpan ke filesystem staging dan metadata-nya tercatat di manifest.',
+        variant='success',
+        chips=[
+            f'{len(staged_rows)} file tersimpan',
+            f"{sum(int(r.get('rows_detected') or 0) for r in staged_rows):,} baris file",
+        ],
+    )
+
+    render_stage_panel(
+        title='4. Migrasi ke Tabel Utama',
+        status='Belum aktif',
+        body='Tahap migrasi Crewdible dari file staging ke tabel utama belum diaktifkan. Saat ini halaman hanya menangani upload dan manifest file.',
+        variant='warning',
     )
 
 
@@ -1990,7 +2318,7 @@ def main():
     st.markdown("""
     <div class="wf-header">
         <h1>🌾 Wellfarm Data Hub</h1>
-        <p>Upload dan pantau data dari Shopee, TikTok/Tokopedia, dan Lazada.</p>
+        <p>Upload dan pantau data dari Shopee, TikTok/Tokopedia, Lazada, dan Crewdible.</p>
     </div>
     """, unsafe_allow_html=True)
 
