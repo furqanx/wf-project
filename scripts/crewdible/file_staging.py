@@ -1,6 +1,5 @@
 """File-system staging helpers for Crewdible transaction uploads."""
 
-import os
 import zipfile
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -11,19 +10,20 @@ from pathlib import Path
 import openpyxl
 from sqlalchemy import text
 
-from src.db_config import logger
-from src.file_staging import (
+from scripts.staging.manifest import (
     PROJECT_ROOT,
     calculate_sha256,
-    ensure_file_staging_tables,
+    ensure_file_manifest_tables,
+    get_env_path,
     slugify,
-    _unique_path,
+    unique_path,
 )
 
 
 DEFAULT_CREWDIBLE_STAGING_ROOT = PROJECT_ROOT / "data" / "staging" / "crewdible"
-CREWDIBLE_STAGING_ROOT = Path(
-    os.getenv("CREWDIBLE_FILE_STAGING_ROOT", DEFAULT_CREWDIBLE_STAGING_ROOT)
+CREWDIBLE_STAGING_ROOT = get_env_path(
+    "CREWDIBLE_FILE_STAGING_ROOT",
+    DEFAULT_CREWDIBLE_STAGING_ROOT,
 )
 
 CREWDIBLE_DATA_CATEGORY = "transaction"
@@ -171,11 +171,11 @@ def build_crewdible_staging_path(original_filename, metadata: CrewdibleUploadMet
     else:
         period_part = str(metadata.period_year)
     staged_name = f"crewdible_{metadata.data_category}_{period_part}__{original_stem}{file_ext}"
-    return _unique_path(folder / staged_name)
+    return unique_path(folder / staged_name)
 
 
 def check_crewdible_manifest_status(filename, file_path, metadata: CrewdibleUploadMetadata, engine):
-    ensure_file_staging_tables(engine)
+    ensure_file_manifest_tables(engine)
     inspection = inspect_crewdible_file(file_path)
     checksum = calculate_sha256(file_path)
     file_size = Path(file_path).stat().st_size
@@ -248,7 +248,7 @@ def check_crewdible_manifest_status(filename, file_path, metadata: CrewdibleUplo
 
 def stage_crewdible_uploaded_file(uploaded_file, metadata: CrewdibleUploadMetadata, engine):
     """Write an uploaded Crewdible workbook to filesystem staging and manifest."""
-    ensure_file_staging_tables(engine)
+    ensure_file_manifest_tables(engine)
     staged_path = build_crewdible_staging_path(uploaded_file.name, metadata)
 
     with open(staged_path, "wb") as f:
@@ -318,12 +318,6 @@ def stage_crewdible_uploaded_file(uploaded_file, metadata: CrewdibleUploadMetada
             "rows_detected": rows_detected,
         }).scalar_one()
 
-    logger.info(
-        "Crewdible file staged: %s -> %s [manifest_id=%s]",
-        uploaded_file.name,
-        staged_path,
-        manifest_id,
-    )
     return {
         "manifest_id": int(manifest_id),
         "staged_filename": staged_path.name,

@@ -18,7 +18,7 @@ from sqlalchemy import text
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.db_config import get_engine
-from src.crewdible_file_staging import (
+from scripts.crewdible.file_staging import (
     CrewdibleUploadMetadata,
     check_crewdible_manifest_status,
     stage_crewdible_uploaded_file,
