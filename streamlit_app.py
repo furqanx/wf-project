@@ -19,7 +19,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from src.db_config import get_engine
 from src.crewdible_file_staging import (
-    CREWDIBLE_STAGING_ROOT,
     CrewdibleUploadMetadata,
     check_crewdible_manifest_status,
     stage_crewdible_uploaded_file,
@@ -1249,17 +1248,6 @@ def render_crewdible_upload_tab(engine):
         body='Upload file transaksi Crewdible. Gunakan file yang sudah seragam: sheet Transaction, header di baris pertama.',
         variant='ready',
     )
-
-    with st.expander('Struktur folder penyimpanan di VPS', expanded=False):
-        st.code(
-            str(CREWDIBLE_STAGING_ROOT)
-            + '/transaction/year=YYYY/month=MM/uploaded_date=YYYY-MM-DD/crewdible_transaction_YYYY_MM__nama_file.xlsx',
-            language=None,
-        )
-        st.caption(
-            'Jika file tahunan, folder bulan memakai `month=all`. '
-            'Root folder bisa diganti lewat environment variable `CREWDIBLE_FILE_STAGING_ROOT`.'
-        )
 
     uploaded_files = st.file_uploader(
         'Pilih satu atau beberapa file Excel Crewdible (.xlsx / .xls)',
