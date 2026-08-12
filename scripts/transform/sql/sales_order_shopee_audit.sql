@@ -85,9 +85,9 @@ SELECT 'unmapped_store_rows', COUNT(*)::bigint, 'Rows whose store_name does not 
 FROM resolved_rows
 WHERE store_id IS NULL
 UNION ALL
-SELECT 'unmapped_product_rows', COUNT(*)::bigint, 'Rows whose SKU/alias does not resolve to product master.'
+SELECT 'unmapped_product_rows', COUNT(*)::bigint, 'Rows whose SKU/alias does not resolve to product SKU alias.'
 FROM resolved_rows
-WHERE product_id IS NULL
+WHERE product_sku_alias_id IS NULL
 UNION ALL
 SELECT 'duplicate_source_order_extra_rows', COALESCE(SUM(row_count - 1), 0)::bigint, 'Extra source rows per order grain. Usually expected because one order has multiple items.'
 FROM duplicate_orders

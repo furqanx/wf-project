@@ -75,7 +75,7 @@ resolved_rows AS (
        AND psa.is_active
     WHERE s.external_order_id IS NOT NULL
       AND COALESCE(ds.store_id, alias_store.store_id) IS NOT NULL
-      AND COALESCE(pma.product_id, psa.product_id) IS NOT NULL
+      AND COALESCE(pma.product_sku_alias_id, psa.product_sku_alias_id) IS NOT NULL
 ),
 item_rows AS (
     SELECT DISTINCT ON (
