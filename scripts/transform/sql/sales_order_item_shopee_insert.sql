@@ -1,4 +1,4 @@
-WITH source_rows AS (
+WITH source_raw AS (
     SELECT
         NULLIF(NULLIF(NULLIF(TRIM(no_pesanan), ''), 'nan'), '-') AS external_order_id,
         LOWER(REGEXP_REPLACE(TRIM(store_name), '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
@@ -9,33 +9,49 @@ WITH source_rows AS (
         NULLIF(NULLIF(NULLIF(TRIM(nama_produk), ''), 'nan'), '-') AS source_product_name,
         NULLIF(NULLIF(NULLIF(TRIM(nama_variasi), ''), 'nan'), '-') AS source_variation_name,
         NULLIF(NULLIF(NULLIF(TRIM(status_pesanan), ''), 'nan'), '-') AS item_status,
+        NULLIF(REGEXP_REPLACE(REPLACE(REPLACE(TRIM(jumlah), '.', ''), ',', ''), '[^0-9-]+', '', 'g'), '') AS quantity_text,
+        NULLIF(REGEXP_REPLACE(REPLACE(REPLACE(TRIM(returned_quantity), '.', ''), ',', ''), '[^0-9-]+', '', 'g'), '') AS quantity_returned_text,
+        NULLIF(REGEXP_REPLACE(REPLACE(REPLACE(TRIM(harga_awal), '.', ''), ',', ''), '[^0-9-]+', '', 'g'), '') AS unit_price_text,
+        NULLIF(REGEXP_REPLACE(REPLACE(REPLACE(TRIM(total_diskon), '.', ''), ',', ''), '[^0-9-]+', '', 'g'), '') AS discount_text,
+        NULLIF(REGEXP_REPLACE(REPLACE(REPLACE(TRIM(total_harga_produk), '.', ''), ',', ''), '[^0-9-]+', '', 'g'), '') AS net_item_text,
+        source_filename
+    FROM {staging_schema}.shopee_orders
+),
+source_rows AS (
+    SELECT
+        external_order_id,
+        normalized_store_name,
+        source_sku_code,
+        source_product_name,
+        source_variation_name,
+        item_status,
         CASE
-            WHEN NULLIF(NULLIF(NULLIF(TRIM(jumlah), ''), 'nan'), '-') IS NOT NULL
-                THEN NULLIF(REPLACE(REPLACE(TRIM(jumlah), '.', ''), ',', ''), '')::numeric
+            WHEN quantity_text ~ '^-?[0-9]+$'
+                THEN quantity_text::numeric
             ELSE NULL
         END AS quantity,
         CASE
-            WHEN NULLIF(NULLIF(NULLIF(TRIM(returned_quantity), ''), 'nan'), '-') IS NOT NULL
-                THEN NULLIF(REPLACE(REPLACE(TRIM(returned_quantity), '.', ''), ',', ''), '')::numeric
+            WHEN quantity_returned_text ~ '^-?[0-9]+$'
+                THEN quantity_returned_text::numeric
             ELSE 0::numeric
         END AS quantity_returned,
         CASE
-            WHEN NULLIF(NULLIF(NULLIF(TRIM(harga_awal), ''), 'nan'), '-') IS NOT NULL
-                THEN NULLIF(REPLACE(REPLACE(TRIM(harga_awal), '.', ''), ',', ''), '')::numeric
+            WHEN unit_price_text ~ '^-?[0-9]+$'
+                THEN unit_price_text::numeric
             ELSE NULL
         END AS unit_price,
         CASE
-            WHEN NULLIF(NULLIF(NULLIF(TRIM(total_diskon), ''), 'nan'), '-') IS NOT NULL
-                THEN ABS(NULLIF(REPLACE(REPLACE(TRIM(total_diskon), '.', ''), ',', ''), '')::numeric)
+            WHEN discount_text ~ '^-?[0-9]+$'
+                THEN ABS(discount_text::numeric)
             ELSE 0::numeric
         END AS discount_amount,
         CASE
-            WHEN NULLIF(NULLIF(NULLIF(TRIM(total_harga_produk), ''), 'nan'), '-') IS NOT NULL
-                THEN NULLIF(REPLACE(REPLACE(TRIM(total_harga_produk), '.', ''), ',', ''), '')::numeric
+            WHEN net_item_text ~ '^-?[0-9]+$'
+                THEN net_item_text::numeric
             ELSE NULL
         END AS net_item_amount,
         source_filename
-    FROM {staging_schema}.shopee_orders
+    FROM source_raw
 ),
 marketplace AS (
     SELECT marketplace_id
