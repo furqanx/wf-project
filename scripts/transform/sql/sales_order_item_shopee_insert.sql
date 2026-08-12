@@ -46,7 +46,7 @@ marketplace AS (
 resolved_rows AS (
     SELECT
         s.*,
-        ds.store_id,
+        COALESCE(ds.store_id, alias_store.store_id) AS store_id,
         COALESCE(pma.product_id, psa.product_id) AS product_id,
         COALESCE(pma.product_sku_alias_id, psa.product_sku_alias_id) AS product_sku_alias_id
     FROM source_rows s
@@ -57,6 +57,11 @@ resolved_rows AS (
             LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
             OR LOWER(ds.store_code) = s.normalized_store_name
        )
+    LEFT JOIN {target_schema}.store_name_alias sna
+        ON sna.normalized_store_name = s.normalized_store_name
+    LEFT JOIN {target_schema}.dim_store alias_store
+        ON alias_store.store_id = sna.store_id
+       AND alias_store.marketplace_id = m.marketplace_id
     LEFT JOIN {target_schema}.product_marketplace_alias pma
         ON pma.marketplace_code = 'shopee'
        AND pma.is_active
@@ -69,7 +74,7 @@ resolved_rows AS (
         ON psa.sku_code = s.source_sku_code
        AND psa.is_active
     WHERE s.external_order_id IS NOT NULL
-      AND ds.store_id IS NOT NULL
+      AND COALESCE(ds.store_id, alias_store.store_id) IS NOT NULL
       AND COALESCE(pma.product_id, psa.product_id) IS NOT NULL
 ),
 item_rows AS (
