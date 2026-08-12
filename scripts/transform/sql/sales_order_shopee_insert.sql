@@ -52,7 +52,10 @@ resolved_rows AS (
     CROSS JOIN marketplace m
     LEFT JOIN {target_schema}.dim_store ds
         ON ds.marketplace_id = m.marketplace_id
-       AND LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
+       AND (
+            LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
+            OR LOWER(ds.store_code) = s.normalized_store_name
+       )
     WHERE s.external_order_id IS NOT NULL
       AND ds.store_id IS NOT NULL
 ),
@@ -116,4 +119,3 @@ SELECT
     'Loaded by scripts/transform/sales_phase_1.py'
 FROM order_rows
 ON CONFLICT DO NOTHING;
-

@@ -27,7 +27,10 @@ resolved_rows AS (
     CROSS JOIN marketplace m
     LEFT JOIN {target_schema}.dim_store ds
         ON ds.marketplace_id = m.marketplace_id
-       AND LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
+       AND (
+            LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
+            OR LOWER(ds.store_code) = s.normalized_store_name
+       )
     LEFT JOIN {target_schema}.product_marketplace_alias pma
         ON pma.marketplace_code = 'shopee'
        AND pma.is_active
@@ -86,4 +89,3 @@ FROM duplicate_orders
 UNION ALL
 SELECT 'duplicate_source_item_extra_rows', COALESCE(SUM(row_count - 1), 0)::bigint, 'Potential duplicated item lines by source order/store/SKU/product/variation.'
 FROM duplicate_items;
-
