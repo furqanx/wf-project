@@ -18,28 +18,44 @@ resolved_rows AS (
         s.*,
         COALESCE(pma.product_sku_alias_id, psa.product_sku_alias_id) AS product_sku_alias_id
     FROM source_rows s
-    LEFT JOIN LATERAL (
-        SELECT pma.product_sku_alias_id
-        FROM {target_schema}.product_marketplace_alias pma
-        WHERE pma.marketplace_code IN ('tiktok_tokopedia', 'tiktok')
-          AND pma.is_active
-          AND (
-            LOWER(pma.raw_alias) = LOWER(s.source_sku_code)
-            OR LOWER(pma.source_sku_code) = LOWER(s.source_sku_code)
-            OR LOWER(pma.mapped_source_sku_code) = LOWER(s.source_sku_code)
-            OR LOWER(pma.normalized_alias) = LOWER(s.source_sku_code)
-          )
-        ORDER BY pma.product_marketplace_alias_id
-        LIMIT 1
-    ) pma ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT psa.product_sku_alias_id
-        FROM {target_schema}.product_sku_alias psa
-        WHERE psa.sku_code = s.source_sku_code
-          AND psa.is_active
-        ORDER BY psa.product_sku_alias_id
-        LIMIT 1
-    ) psa ON TRUE
+    LEFT JOIN (
+        SELECT DISTINCT ON (alias_code)
+            alias_code,
+            product_sku_alias_id
+        FROM (
+            SELECT LOWER(raw_alias) AS alias_code, product_sku_alias_id, product_marketplace_alias_id
+            FROM {target_schema}.product_marketplace_alias
+            WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+              AND is_active
+            UNION ALL
+            SELECT LOWER(source_sku_code) AS alias_code, product_sku_alias_id, product_marketplace_alias_id
+            FROM {target_schema}.product_marketplace_alias
+            WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+              AND is_active
+            UNION ALL
+            SELECT LOWER(mapped_source_sku_code) AS alias_code, product_sku_alias_id, product_marketplace_alias_id
+            FROM {target_schema}.product_marketplace_alias
+            WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+              AND is_active
+            UNION ALL
+            SELECT LOWER(normalized_alias) AS alias_code, product_sku_alias_id, product_marketplace_alias_id
+            FROM {target_schema}.product_marketplace_alias
+            WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+              AND is_active
+        ) aliases
+        WHERE alias_code IS NOT NULL
+        ORDER BY alias_code, product_marketplace_alias_id
+    ) pma
+        ON pma.alias_code = LOWER(s.source_sku_code)
+    LEFT JOIN (
+        SELECT DISTINCT ON (LOWER(sku_code))
+            LOWER(sku_code) AS sku_code,
+            product_sku_alias_id
+        FROM {target_schema}.product_sku_alias
+        WHERE is_active
+        ORDER BY LOWER(sku_code), product_sku_alias_id
+    ) psa
+        ON psa.sku_code = LOWER(s.source_sku_code)
     WHERE s.external_order_id IS NOT NULL
 )
 SELECT

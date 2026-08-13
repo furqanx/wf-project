@@ -67,25 +67,36 @@ marketplace AS (
     WHERE marketplace_code = 'tiktok_tokopedia'
     LIMIT 1
 ),
+store_lookup AS (
+    SELECT
+        ds.store_id,
+        LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
+        LOWER(ds.store_code) AS normalized_store_code
+    FROM {target_schema}.dim_store ds
+    JOIN marketplace m
+        ON m.marketplace_id = ds.marketplace_id
+    UNION ALL
+    SELECT
+        sna.store_id,
+        sna.normalized_store_name,
+        sna.normalized_store_name AS normalized_store_code
+    FROM {target_schema}.store_name_alias sna
+    JOIN {target_schema}.dim_store ds
+        ON ds.store_id = sna.store_id
+    JOIN marketplace m
+        ON m.marketplace_id = ds.marketplace_id
+),
 resolved_rows AS (
     SELECT
         s.*,
-        COALESCE(ds.store_id, alias_store.store_id) AS store_id
+        sl.store_id
     FROM source_rows s
     CROSS JOIN marketplace m
-    LEFT JOIN {target_schema}.dim_store ds
-        ON ds.marketplace_id = m.marketplace_id
-       AND (
-            LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
-            OR LOWER(ds.store_code) = s.normalized_store_name
-       )
-    LEFT JOIN {target_schema}.store_name_alias sna
-        ON sna.normalized_store_name = s.normalized_store_name
-    LEFT JOIN {target_schema}.dim_store alias_store
-        ON alias_store.store_id = sna.store_id
-       AND alias_store.marketplace_id = m.marketplace_id
+    LEFT JOIN store_lookup sl
+        ON sl.normalized_store_name = s.normalized_store_name
+        OR sl.normalized_store_code = s.normalized_store_name
     WHERE s.external_order_id IS NOT NULL
-      AND COALESCE(ds.store_id, alias_store.store_id) IS NOT NULL
+      AND sl.store_id IS NOT NULL
 ),
 addon_rows AS (
     SELECT DISTINCT ON (

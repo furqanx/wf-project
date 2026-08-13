@@ -19,51 +19,78 @@ marketplace AS (
     WHERE marketplace_code = 'tiktok_tokopedia'
     LIMIT 1
 ),
+store_lookup AS (
+    SELECT
+        ds.store_id,
+        LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
+        LOWER(ds.store_code) AS normalized_store_code
+    FROM {target_schema}.dim_store ds
+    JOIN marketplace m
+        ON m.marketplace_id = ds.marketplace_id
+    UNION ALL
+    SELECT
+        sna.store_id,
+        sna.normalized_store_name,
+        sna.normalized_store_name AS normalized_store_code
+    FROM {target_schema}.store_name_alias sna
+    JOIN {target_schema}.dim_store ds
+        ON ds.store_id = sna.store_id
+    JOIN marketplace m
+        ON m.marketplace_id = ds.marketplace_id
+),
+marketplace_alias_lookup AS (
+    SELECT DISTINCT ON (alias_code)
+        alias_code,
+        product_id,
+        product_sku_alias_id
+    FROM (
+        SELECT LOWER(raw_alias) AS alias_code, product_id, product_sku_alias_id, product_marketplace_alias_id
+        FROM {target_schema}.product_marketplace_alias
+        WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+          AND is_active
+        UNION ALL
+        SELECT LOWER(source_sku_code) AS alias_code, product_id, product_sku_alias_id, product_marketplace_alias_id
+        FROM {target_schema}.product_marketplace_alias
+        WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+          AND is_active
+        UNION ALL
+        SELECT LOWER(mapped_source_sku_code) AS alias_code, product_id, product_sku_alias_id, product_marketplace_alias_id
+        FROM {target_schema}.product_marketplace_alias
+        WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+          AND is_active
+        UNION ALL
+        SELECT LOWER(normalized_alias) AS alias_code, product_id, product_sku_alias_id, product_marketplace_alias_id
+        FROM {target_schema}.product_marketplace_alias
+        WHERE marketplace_code IN ('tiktok_tokopedia', 'tiktok')
+          AND is_active
+    ) aliases
+    WHERE alias_code IS NOT NULL
+    ORDER BY alias_code, product_marketplace_alias_id
+),
+sku_alias_lookup AS (
+    SELECT DISTINCT ON (LOWER(sku_code))
+        LOWER(sku_code) AS sku_code,
+        product_id,
+        product_sku_alias_id
+    FROM {target_schema}.product_sku_alias
+    WHERE is_active
+    ORDER BY LOWER(sku_code), product_sku_alias_id
+),
 resolved_rows AS (
     SELECT
         s.*,
-        COALESCE(ds.store_id, alias_store.store_id) AS store_id,
+        sl.store_id,
         COALESCE(pma.product_id, psa.product_id) AS product_id,
         COALESCE(pma.product_sku_alias_id, psa.product_sku_alias_id) AS product_sku_alias_id
     FROM source_rows s
     CROSS JOIN marketplace m
-    LEFT JOIN {target_schema}.dim_store ds
-        ON ds.marketplace_id = m.marketplace_id
-       AND (
-            LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) = s.normalized_store_name
-            OR LOWER(ds.store_code) = s.normalized_store_name
-       )
-    LEFT JOIN {target_schema}.store_name_alias sna
-        ON sna.normalized_store_name = s.normalized_store_name
-    LEFT JOIN {target_schema}.dim_store alias_store
-        ON alias_store.store_id = sna.store_id
-       AND alias_store.marketplace_id = m.marketplace_id
-    LEFT JOIN LATERAL (
-        SELECT
-            pma.product_id,
-            pma.product_sku_alias_id
-        FROM {target_schema}.product_marketplace_alias pma
-        WHERE pma.marketplace_code IN ('tiktok_tokopedia', 'tiktok')
-          AND pma.is_active
-          AND (
-            LOWER(pma.raw_alias) = LOWER(s.source_sku_code)
-            OR LOWER(pma.source_sku_code) = LOWER(s.source_sku_code)
-            OR LOWER(pma.mapped_source_sku_code) = LOWER(s.source_sku_code)
-            OR LOWER(pma.normalized_alias) = LOWER(s.source_sku_code)
-          )
-        ORDER BY pma.product_marketplace_alias_id
-        LIMIT 1
-    ) pma ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT
-            psa.product_id,
-            psa.product_sku_alias_id
-        FROM {target_schema}.product_sku_alias psa
-        WHERE psa.sku_code = s.source_sku_code
-          AND psa.is_active
-        ORDER BY psa.product_sku_alias_id
-        LIMIT 1
-    ) psa ON TRUE
+    LEFT JOIN store_lookup sl
+        ON sl.normalized_store_name = s.normalized_store_name
+        OR sl.normalized_store_code = s.normalized_store_name
+    LEFT JOIN marketplace_alias_lookup pma
+        ON pma.alias_code = LOWER(s.source_sku_code)
+    LEFT JOIN sku_alias_lookup psa
+        ON psa.sku_code = LOWER(s.source_sku_code)
     WHERE s.external_order_id IS NOT NULL
 ),
 duplicate_orders AS (

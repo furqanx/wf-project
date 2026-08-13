@@ -236,12 +236,18 @@ def main() -> None:
                 )
 
             logger.info("Execute transform source_system=%s", args.source_system)
+            logger.info("Insert order rows")
             order_result = conn.execute(text(order_sql))
+            logger.info("Insert order rows done: %s", order_result.rowcount)
+            logger.info("Insert item rows")
             item_result = conn.execute(text(item_sql))
+            logger.info("Insert item rows done: %s", item_result.rowcount)
             addon_rows = 0
             if addon_sql:
+                logger.info("Insert addon rows")
                 addon_result = conn.execute(text(addon_sql))
                 addon_rows = addon_result.rowcount
+                logger.info("Insert addon rows done: %s", addon_rows)
         finally:
             conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{temp_table_name}"))
 
