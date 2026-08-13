@@ -3,7 +3,10 @@ WITH source_raw AS (
         NULLIF(NULLIF(NULLIF(TRIM(order_id), ''), 'nan'), '-') AS external_order_id,
         LOWER(REGEXP_REPLACE(TRIM(store_name), '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
         NULLIF(NULLIF(NULLIF(TRIM(sku_id), ''), 'nan'), '-') AS sku_id,
-        NULLIF(NULLIF(NULLIF(TRIM(seller_sku), ''), 'nan'), '-') AS source_sku_code,
+        COALESCE(
+            NULLIF(NULLIF(NULLIF(TRIM(seller_sku), ''), 'nan'), '-'),
+            NULLIF(NULLIF(NULLIF(TRIM(sku_id), ''), 'nan'), '-')
+        ) AS source_sku_code,
         NULLIF(NULLIF(NULLIF(TRIM(product_name), ''), 'nan'), '-') AS source_product_name,
         NULLIF(NULLIF(NULLIF(TRIM(variation), ''), 'nan'), '-') AS source_variation_name,
         NULLIF(NULLIF(NULLIF(TRIM(order_status), ''), 'nan'), '-') AS item_status,

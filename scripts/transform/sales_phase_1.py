@@ -59,7 +59,7 @@ SOURCE_SQL_FILES = {
         "audit": "sales_order_tiktok_tokopedia_audit.sql",
         "order": "sales_order_tiktok_tokopedia_insert.sql",
         "item": "sales_order_item_tiktok_tokopedia_insert.sql",
-        "addon": None,
+        "addon": "sales_order_addon_tiktok_tokopedia_insert.sql",
         "unmapped": "unmapped_product_tiktok_tokopedia_export.sql",
     },
 }
