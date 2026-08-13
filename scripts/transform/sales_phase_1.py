@@ -1,4 +1,4 @@
-"""Transform sales order phase 1 into fact_sales_order and fact_sales_order_item."""
+"""Transform sales order phase 1 into sales order facts."""
 
 from __future__ import annotations
 
@@ -58,6 +58,7 @@ def main() -> None:
         audit_sql = ctx.render_sql("sales_order_shopee_audit.sql")
         order_sql = ctx.render_sql("sales_order_shopee_insert.sql")
         item_sql = ctx.render_sql("sales_order_item_shopee_insert.sql")
+        addon_sql = ctx.render_sql("sales_order_addon_shopee_insert.sql")
     else:
         raise NotImplementedError(f"Unsupported source system: {args.source_system}")
 
@@ -79,14 +80,15 @@ def main() -> None:
     with engine.begin() as conn:
         order_result = conn.execute(text(order_sql))
         item_result = conn.execute(text(item_sql))
+        addon_result = conn.execute(text(addon_sql))
 
     logger.info(
-        "Transform finished. order_rows=%s item_rows=%s",
+        "Transform finished. order_rows=%s item_rows=%s addon_rows=%s",
         order_result.rowcount,
         item_result.rowcount,
+        addon_result.rowcount,
     )
 
 
 if __name__ == "__main__":
     main()
-
