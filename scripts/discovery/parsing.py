@@ -78,6 +78,24 @@ def parse_fixed_data_path(path: Path, source_root: Path) -> MarketplaceFile | No
         marketplace = filename_metadata["marketplace"]
         phase = filename_metadata["phase"]
 
+    partition_store_slug = None
+    for part in relative_parts:
+        if part.startswith("store="):
+            partition_store_slug = part.split("=", 1)[1]
+            marketplace_prefix = f"{marketplace}_"
+            if partition_store_slug.startswith(marketplace_prefix):
+                partition_store_slug = partition_store_slug[len(marketplace_prefix):]
+            break
+
+    store_slug = partition_store_slug or filename_metadata.get("store_slug")
+    store_name = None
+    if partition_store_slug:
+        store_name = display_store_name(marketplace, partition_store_slug)
+    else:
+        store_name = filename_metadata.get("store_name")
+    if not store_name and store_slug:
+        store_name = display_store_name(marketplace, store_slug)
+
     year = relative_parts[2] if len(relative_parts) >= 4 else None
     month = relative_parts[3] if len(relative_parts) >= 5 else None
 
@@ -87,8 +105,8 @@ def parse_fixed_data_path(path: Path, source_root: Path) -> MarketplaceFile | No
         phase=phase,
         year=year,
         month=month,
-        store_slug=filename_metadata.get("store_slug"),
-        store_name=filename_metadata.get("store_name"),
+        store_slug=store_slug,
+        store_name=store_name,
         start_date=filename_metadata.get("start_date"),
         end_date=filename_metadata.get("end_date"),
     )
@@ -144,4 +162,3 @@ def infer_file_from_path(
         start_date=filename_metadata.get("start_date") if filename_metadata else None,
         end_date=filename_metadata.get("end_date") if filename_metadata else None,
     )
-

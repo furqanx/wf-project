@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 
 @dataclass(frozen=True)
@@ -23,14 +23,21 @@ class AuditResult:
         return self.value("unmapped_store_rows") > 0 or self.value("unmapped_product_rows") > 0
 
 
+def rows_to_audit_result(rows: object) -> AuditResult:
+    return AuditResult(rows=[dict(row._mapping) for row in rows])
+
+
 def run_audit(engine: Engine, sql: str) -> AuditResult:
     with engine.connect() as conn:
-        result = conn.execute(text(sql))
-        return AuditResult(rows=[dict(row._mapping) for row in result])
+        return run_audit_on_connection(conn, sql)
+
+
+def run_audit_on_connection(conn: Connection, sql: str) -> AuditResult:
+    result = conn.execute(text(sql))
+    return rows_to_audit_result(result)
 
 
 def print_audit(result: AuditResult) -> None:
     print("metric,value,notes")
     for row in result.rows:
         print(f"{row.get('metric')},{row.get('value')},{row.get('notes') or ''}")
-

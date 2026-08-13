@@ -2,6 +2,7 @@ WITH source_raw AS (
     SELECT
         NULLIF(NULLIF(NULLIF(TRIM(order_number), ''), 'nan'), '-') AS external_order_id,
         LOWER(REGEXP_REPLACE(TRIM(store_name), '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
+        NULLIF(NULLIF(NULLIF(TRIM(order_item_id), ''), 'nan'), '-') AS source_line_id,
         NULLIF(NULLIF(NULLIF(TRIM(status), ''), 'nan'), '-') AS order_status,
         NULLIF(NULLIF(NULLIF(TRIM(pay_method), ''), 'nan'), '-') AS payment_status,
         NULLIF(NULLIF(NULLIF(TRIM(create_time), ''), 'nan'), '-') AS order_datetime_text,
@@ -18,6 +19,10 @@ source_rows AS (
     SELECT
         external_order_id,
         normalized_store_name,
+        COALESCE(
+            source_line_id,
+            MD5(CONCAT_WS('|', external_order_id, normalized_store_name, source_filename, paid_price_text, unit_price_text))
+        ) AS source_line_id,
         order_status,
         payment_status,
         CASE
@@ -87,6 +92,20 @@ resolved_rows AS (
     WHERE s.external_order_id IS NOT NULL
       AND COALESCE(ds.store_id, alias_store.store_id) IS NOT NULL
 ),
+deduped_rows AS (
+    SELECT DISTINCT ON (
+        external_order_id,
+        normalized_store_name,
+        source_line_id
+    )
+        *
+    FROM resolved_rows
+    ORDER BY
+        external_order_id,
+        normalized_store_name,
+        source_line_id,
+        source_filename DESC
+),
 order_rows AS (
     SELECT
         'lazada'::text AS source_system,
@@ -105,7 +124,7 @@ order_rows AS (
         SUM(COALESCE(shipping_fee_amount, 0)) AS shipping_fee_amount,
         SUM(COALESCE(paid_price, 0)) AS net_order_amount,
         STRING_AGG(DISTINCT source_filename, ' | ' ORDER BY source_filename) AS source_file
-    FROM resolved_rows
+    FROM deduped_rows
     GROUP BY marketplace_id, store_id, external_order_id
 )
 INSERT INTO {target_schema}.fact_sales_order (
