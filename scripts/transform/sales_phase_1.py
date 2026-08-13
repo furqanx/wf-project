@@ -19,7 +19,7 @@ from scripts.database.connection import get_engine
 from scripts.file_discovery import MarketplaceFile, discover_files
 from scripts.loaders import lazada as lazada_loader
 from scripts.loaders import shopee as shopee_loader
-from scripts.transform.audit import print_audit, run_audit, run_audit_on_connection
+from scripts.transform.audit import print_audit, run_audit_on_connection
 from scripts.transform.context import TransformContext
 
 
@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         description="Transform staging sales order data into SSOT phase-1 sales facts."
     )
     parser.add_argument("--source-system", required=True, choices=sorted(SUPPORTED_SOURCES))
-    parser.add_argument("--staging-schema", default="public_staging")
+    parser.add_argument("--staging-schema", default="pg_temp")
     parser.add_argument("--target-schema", default="public")
     parser.add_argument(
         "--source-folder",
@@ -172,61 +172,39 @@ def main() -> None:
     item_sql = ctx.render_sql(sql_files["item"])
     addon_sql = ctx.render_sql(sql_files["addon"]) if sql_files["addon"] else None
 
-    if args.source_folder:
-        with engine.begin() as conn:
-            temp_table_name = create_temp_staging_table(
-                conn,
-                source_system=args.source_system,
-                source_folder=args.source_folder,
-            )
-            try:
-                logger.info("Run audit source_system=%s", args.source_system)
-                audit = run_audit_on_connection(conn, audit_sql)
-                print_audit(audit)
+    if not args.source_folder:
+        raise RuntimeError("Folder source is required. Database staging source is disabled.")
 
-                if not args.execute:
-                    logger.info("Dry-run only. Add --execute to insert into target facts.")
-                    return
+    with engine.begin() as conn:
+        temp_table_name = create_temp_staging_table(
+            conn,
+            source_system=args.source_system,
+            source_folder=args.source_folder,
+        )
+        try:
+            logger.info("Run audit source_system=%s", args.source_system)
+            audit = run_audit_on_connection(conn, audit_sql)
+            print_audit(audit)
 
-                if audit.has_blocking_issues() and not args.allow_unmapped:
-                    raise RuntimeError(
-                        "Transform blocked: unmapped store/product rows detected. "
-                        "Fix mappings first, or rerun with --allow-unmapped for controlled testing."
-                    )
+            if not args.execute:
+                logger.info("Dry-run only. Add --execute to insert into target facts.")
+                return
 
-                logger.info("Execute transform source_system=%s", args.source_system)
-                order_result = conn.execute(text(order_sql))
-                item_result = conn.execute(text(item_sql))
-                addon_rows = 0
-                if addon_sql:
-                    addon_result = conn.execute(text(addon_sql))
-                    addon_rows = addon_result.rowcount
-            finally:
-                conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{temp_table_name}"))
-    else:
-        logger.info("Source mode : database")
-        logger.info("Run audit source_system=%s", args.source_system)
-        audit = run_audit(engine, audit_sql)
-        print_audit(audit)
+            if audit.has_blocking_issues() and not args.allow_unmapped:
+                raise RuntimeError(
+                    "Transform blocked: unmapped store/product rows detected. "
+                    "Fix mappings first, or rerun with --allow-unmapped for controlled testing."
+                )
 
-        if not args.execute:
-            logger.info("Dry-run only. Add --execute to insert into target facts.")
-            return
-
-        if audit.has_blocking_issues() and not args.allow_unmapped:
-            raise RuntimeError(
-                "Transform blocked: unmapped store/product rows detected. "
-                "Fix mappings first, or rerun with --allow-unmapped for controlled testing."
-            )
-
-        logger.info("Execute transform source_system=%s", args.source_system)
-        with engine.begin() as conn:
+            logger.info("Execute transform source_system=%s", args.source_system)
             order_result = conn.execute(text(order_sql))
             item_result = conn.execute(text(item_sql))
             addon_rows = 0
             if addon_sql:
                 addon_result = conn.execute(text(addon_sql))
                 addon_rows = addon_result.rowcount
+        finally:
+            conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{temp_table_name}"))
 
     logger.info(
         "Transform finished. order_rows=%s item_rows=%s addon_rows=%s",

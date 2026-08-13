@@ -16,7 +16,7 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 @dataclass(frozen=True)
 class TransformContext:
-    staging_schema: str = "public_staging"
+    staging_schema: str = "pg_temp"
     target_schema: str = "public"
 
     def validate(self) -> None:
@@ -35,4 +35,3 @@ class TransformContext:
 def validate_identifier(value: str, label: str) -> None:
     if not _IDENTIFIER_RE.fullmatch(value):
         raise ValueError(f"Invalid SQL identifier for {label}: {value!r}")
-

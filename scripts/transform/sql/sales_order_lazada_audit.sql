@@ -37,18 +37,32 @@ resolved_rows AS (
     LEFT JOIN {target_schema}.dim_store alias_store
         ON alias_store.store_id = sna.store_id
        AND alias_store.marketplace_id = m.marketplace_id
-    LEFT JOIN {target_schema}.product_marketplace_alias pma
-        ON pma.marketplace_code = 'lazada'
-       AND pma.is_active
-       AND (
+    LEFT JOIN LATERAL (
+        SELECT
+            pma.product_id,
+            pma.product_sku_alias_id
+        FROM {target_schema}.product_marketplace_alias pma
+        WHERE pma.marketplace_code = 'lazada'
+          AND pma.is_active
+          AND (
             LOWER(pma.raw_alias) = LOWER(s.source_sku_code)
             OR LOWER(pma.source_sku_code) = LOWER(s.source_sku_code)
             OR LOWER(pma.mapped_source_sku_code) = LOWER(s.source_sku_code)
             OR LOWER(pma.normalized_alias) = LOWER(s.source_sku_code)
-       )
-    LEFT JOIN {target_schema}.product_sku_alias psa
-        ON psa.sku_code = s.source_sku_code
-       AND psa.is_active
+          )
+        ORDER BY pma.product_marketplace_alias_id
+        LIMIT 1
+    ) pma ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            psa.product_id,
+            psa.product_sku_alias_id
+        FROM {target_schema}.product_sku_alias psa
+        WHERE psa.sku_code = s.source_sku_code
+          AND psa.is_active
+        ORDER BY psa.product_sku_alias_id
+        LIMIT 1
+    ) psa ON TRUE
     WHERE s.external_order_id IS NOT NULL
 ),
 duplicate_orders AS (
