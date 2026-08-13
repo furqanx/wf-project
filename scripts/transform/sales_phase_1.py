@@ -26,7 +26,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_SOURCES = {"shopee"}
+SOURCE_SQL_FILES = {
+    "shopee": {
+        "audit": "sales_order_shopee_audit.sql",
+        "order": "sales_order_shopee_insert.sql",
+        "item": "sales_order_item_shopee_insert.sql",
+        "addon": "sales_order_addon_shopee_insert.sql",
+    },
+    "lazada": {
+        "audit": "sales_order_lazada_audit.sql",
+        "order": "sales_order_lazada_insert.sql",
+        "item": "sales_order_item_lazada_insert.sql",
+        "addon": None,
+    },
+}
+
+SUPPORTED_SOURCES = set(SOURCE_SQL_FILES)
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,13 +69,11 @@ def main() -> None:
     )
     engine = get_engine(args.database)
 
-    if args.source_system == "shopee":
-        audit_sql = ctx.render_sql("sales_order_shopee_audit.sql")
-        order_sql = ctx.render_sql("sales_order_shopee_insert.sql")
-        item_sql = ctx.render_sql("sales_order_item_shopee_insert.sql")
-        addon_sql = ctx.render_sql("sales_order_addon_shopee_insert.sql")
-    else:
-        raise NotImplementedError(f"Unsupported source system: {args.source_system}")
+    sql_files = SOURCE_SQL_FILES[args.source_system]
+    audit_sql = ctx.render_sql(sql_files["audit"])
+    order_sql = ctx.render_sql(sql_files["order"])
+    item_sql = ctx.render_sql(sql_files["item"])
+    addon_sql = ctx.render_sql(sql_files["addon"]) if sql_files["addon"] else None
 
     logger.info("Run audit source_system=%s", args.source_system)
     audit = run_audit(engine, audit_sql)
@@ -80,13 +93,16 @@ def main() -> None:
     with engine.begin() as conn:
         order_result = conn.execute(text(order_sql))
         item_result = conn.execute(text(item_sql))
-        addon_result = conn.execute(text(addon_sql))
+        addon_rows = 0
+        if addon_sql:
+            addon_result = conn.execute(text(addon_sql))
+            addon_rows = addon_result.rowcount
 
     logger.info(
         "Transform finished. order_rows=%s item_rows=%s addon_rows=%s",
         order_result.rowcount,
         item_result.rowcount,
-        addon_result.rowcount,
+        addon_rows,
     )
 
 
