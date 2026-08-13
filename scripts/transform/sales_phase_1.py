@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import sys
 import warnings
@@ -39,17 +40,19 @@ warnings.filterwarnings(
 
 
 SOURCE_SQL_FILES = {
-    "shopee": {
+        "shopee": {
         "audit": "sales_order_shopee_audit.sql",
         "order": "sales_order_shopee_insert.sql",
         "item": "sales_order_item_shopee_insert.sql",
         "addon": "sales_order_addon_shopee_insert.sql",
+        "unmapped": "unmapped_product_shopee_export.sql",
     },
     "lazada": {
         "audit": "sales_order_lazada_audit.sql",
         "order": "sales_order_lazada_insert.sql",
         "item": "sales_order_item_lazada_insert.sql",
         "addon": None,
+        "unmapped": "unmapped_product_lazada_export.sql",
     },
 }
 
@@ -73,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--database", default=None)
+    parser.add_argument(
+        "--export-unmapped-products",
+        default=None,
+        help="Optional CSV path for top unmapped product/SKU rows from the folder-source temp table.",
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--allow-unmapped",
@@ -157,6 +165,21 @@ def create_temp_staging_table(conn, *, source_system: str, source_folder: str | 
     return table_name
 
 
+def write_query_csv(conn, sql: str, output_path: str | Path) -> Path:
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = conn.execute(text(sql))
+    rows = result.fetchall()
+    columns = list(result.keys())
+
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(columns)
+        writer.writerows(rows)
+
+    return path
+
+
 def main() -> None:
     args = parse_args()
     staging_schema = "pg_temp" if args.source_folder else args.staging_schema
@@ -171,6 +194,7 @@ def main() -> None:
     order_sql = ctx.render_sql(sql_files["order"])
     item_sql = ctx.render_sql(sql_files["item"])
     addon_sql = ctx.render_sql(sql_files["addon"]) if sql_files["addon"] else None
+    unmapped_sql = ctx.render_sql(sql_files["unmapped"])
 
     if not args.source_folder:
         raise RuntimeError("Folder source is required. Database staging source is disabled.")
@@ -185,6 +209,10 @@ def main() -> None:
             logger.info("Run audit source_system=%s", args.source_system)
             audit = run_audit_on_connection(conn, audit_sql)
             print_audit(audit)
+
+            if args.export_unmapped_products:
+                output_path = write_query_csv(conn, unmapped_sql, args.export_unmapped_products)
+                logger.info("Unmapped product export: %s", output_path)
 
             if not args.execute:
                 logger.info("Dry-run only. Add --execute to insert into target facts.")
