@@ -85,6 +85,8 @@ def parse_fixed_data_path(path: Path, source_root: Path) -> MarketplaceFile | No
             marketplace_prefix = f"{marketplace}_"
             if partition_store_slug.startswith(marketplace_prefix):
                 partition_store_slug = partition_store_slug[len(marketplace_prefix):]
+            elif marketplace == "tiktok_tokopedia" and partition_store_slug.startswith("tiktok_"):
+                partition_store_slug = partition_store_slug[len("tiktok_"):]
             break
 
     store_slug = partition_store_slug or filename_metadata.get("store_slug")

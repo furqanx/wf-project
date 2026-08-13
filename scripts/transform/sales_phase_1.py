@@ -20,6 +20,7 @@ from scripts.database.connection import get_engine
 from scripts.file_discovery import MarketplaceFile, discover_files
 from scripts.loaders import lazada as lazada_loader
 from scripts.loaders import shopee as shopee_loader
+from scripts.loaders import tiktok_tokopedia as tiktok_tokopedia_loader
 from scripts.transform.audit import print_audit, run_audit_on_connection
 from scripts.transform.context import TransformContext
 
@@ -53,6 +54,13 @@ SOURCE_SQL_FILES = {
         "item": "sales_order_item_lazada_insert.sql",
         "addon": None,
         "unmapped": "unmapped_product_lazada_export.sql",
+    },
+    "tiktok_tokopedia": {
+        "audit": "sales_order_tiktok_tokopedia_audit.sql",
+        "order": "sales_order_tiktok_tokopedia_insert.sql",
+        "item": "sales_order_item_tiktok_tokopedia_insert.sql",
+        "addon": None,
+        "unmapped": "unmapped_product_tiktok_tokopedia_export.sql",
     },
 }
 
@@ -113,6 +121,8 @@ def read_order_file(item: MarketplaceFile):
         return lazada_loader.read_order(item.path)
     if item.marketplace == "shopee":
         return shopee_loader.read_order(item.path)
+    if item.marketplace == "tiktok_tokopedia":
+        return tiktok_tokopedia_loader.read_order(item.path)
     raise NotImplementedError(f"Folder source loader is not implemented for {item.marketplace!r}.")
 
 
@@ -144,6 +154,7 @@ def create_temp_staging_table(conn, *, source_system: str, source_folder: str | 
     table_by_source = {
         "lazada": "lazada_orders",
         "shopee": "shopee_orders",
+        "tiktok_tokopedia": "tiktok_tokopedia_orders",
     }
     if source_system not in table_by_source:
         raise NotImplementedError(
