@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from scripts.database.connection import get_engine
 from scripts.file_discovery import MarketplaceFile, discover_files
 from scripts.loaders import lazada as lazada_loader
+from scripts.loaders import shopee as shopee_loader
 from scripts.transform.audit import print_audit, run_audit, run_audit_on_connection
 from scripts.transform.context import TransformContext
 
@@ -64,10 +65,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-schema", default="public")
     parser.add_argument(
         "--source-folder",
-        default=None,
+        default=str(PROJECT_ROOT / "data" / "staging"),
         help=(
             "Read normalized staging files from folder instead of database staging table. "
-            "For marketplace files, pass data/staging or data/staging/sales_online."
+            "Default: data/staging. For marketplace files, pass data/staging or "
+            "data/staging/sales_online."
         ),
     )
     parser.add_argument("--database", default=None)
@@ -98,8 +100,16 @@ def discover_order_files(source_folder: str | Path, source_system: str) -> list[
     )
 
 
-def load_lazada_order_folder(source_folder: str | Path) -> pd.DataFrame:
-    files = discover_order_files(source_folder, "lazada")
+def read_order_file(item: MarketplaceFile):
+    if item.marketplace == "lazada":
+        return lazada_loader.read_order(item.path)
+    if item.marketplace == "shopee":
+        return shopee_loader.read_order(item.path)
+    raise NotImplementedError(f"Folder source loader is not implemented for {item.marketplace!r}.")
+
+
+def load_order_folder(source_folder: str | Path, source_system: str) -> pd.DataFrame:
+    files = discover_order_files(source_folder, source_system)
     frames: list[pd.DataFrame] = []
 
     logger.info("Source mode : folder")
@@ -108,14 +118,14 @@ def load_lazada_order_folder(source_folder: str | Path) -> pd.DataFrame:
 
     for index, item in enumerate(files, 1):
         logger.info("[%s/%s] Load %s", index, len(files), item.path)
-        loaded = lazada_loader.read_order(item.path)
+        loaded = read_order_file(item)
         df = loaded.dataframe.copy()
         if item.store_name and "store_name" in df.columns:
             df["store_name"] = item.store_name
         frames.append(df)
 
     if not frames:
-        raise RuntimeError("No Lazada order rows loaded from source folder.")
+        raise RuntimeError(f"No {source_system} order rows loaded from source folder.")
 
     result = pd.concat(frames, ignore_index=True)
     logger.info("Loaded folder rows: %s", len(result))
@@ -123,13 +133,17 @@ def load_lazada_order_folder(source_folder: str | Path) -> pd.DataFrame:
 
 
 def create_temp_staging_table(conn, *, source_system: str, source_folder: str | Path) -> str:
-    if source_system != "lazada":
+    table_by_source = {
+        "lazada": "lazada_orders",
+        "shopee": "shopee_orders",
+    }
+    if source_system not in table_by_source:
         raise NotImplementedError(
             f"Folder source mode is not implemented yet for source_system={source_system!r}."
         )
 
-    df = load_lazada_order_folder(source_folder)
-    table_name = "lazada_orders"
+    df = load_order_folder(source_folder, source_system)
+    table_name = table_by_source[source_system]
     df.to_sql(
         table_name,
         conn,

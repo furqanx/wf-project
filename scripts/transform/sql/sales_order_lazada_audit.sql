@@ -73,7 +73,7 @@ duplicate_items AS (
         COALESCE(source_line_id, '')
     HAVING COUNT(*) > 1
 )
-SELECT 'source_rows' AS metric, COUNT(*)::bigint AS value, 'Rows with usable order id from public_staging.lazada_orders.' AS notes
+SELECT 'source_rows' AS metric, COUNT(*)::bigint AS value, 'Rows with usable order id from staging folder temp table.' AS notes
 FROM resolved_rows
 UNION ALL
 SELECT 'source_orders', COUNT(DISTINCT external_order_id || '|' || normalized_store_name)::bigint, 'Distinct source order grain.'
