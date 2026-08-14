@@ -20,23 +20,39 @@ marketplace AS (
     LIMIT 1
 ),
 store_lookup AS (
-    SELECT
-        ds.store_id,
-        LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) AS normalized_store_name,
-        LOWER(ds.store_code) AS normalized_store_code
-    FROM {target_schema}.dim_store ds
-    JOIN marketplace m
-        ON m.marketplace_id = ds.marketplace_id
-    UNION ALL
-    SELECT
-        sna.store_id,
-        sna.normalized_store_name,
-        sna.normalized_store_name AS normalized_store_code
-    FROM {target_schema}.store_name_alias sna
-    JOIN {target_schema}.dim_store ds
-        ON ds.store_id = sna.store_id
-    JOIN marketplace m
-        ON m.marketplace_id = ds.marketplace_id
+    SELECT DISTINCT ON (lookup_store_name)
+        lookup_store_name,
+        store_id
+    FROM (
+        SELECT
+            LOWER(REGEXP_REPLACE(ds.store_name, '[^a-zA-Z0-9]+', '_', 'g')) AS lookup_store_name,
+            ds.store_id,
+            1 AS priority
+        FROM {target_schema}.dim_store ds
+        JOIN marketplace m
+            ON m.marketplace_id = ds.marketplace_id
+        UNION ALL
+        SELECT
+            LOWER(ds.store_code) AS lookup_store_name,
+            ds.store_id,
+            2 AS priority
+        FROM {target_schema}.dim_store ds
+        JOIN marketplace m
+            ON m.marketplace_id = ds.marketplace_id
+        WHERE ds.store_code IS NOT NULL
+        UNION ALL
+        SELECT
+            sna.normalized_store_name AS lookup_store_name,
+            sna.store_id,
+            3 AS priority
+        FROM {target_schema}.store_name_alias sna
+        JOIN {target_schema}.dim_store ds
+            ON ds.store_id = sna.store_id
+        JOIN marketplace m
+            ON m.marketplace_id = ds.marketplace_id
+    ) lookup
+    WHERE lookup_store_name IS NOT NULL
+    ORDER BY lookup_store_name, priority, store_id
 ),
 marketplace_alias_lookup AS (
     SELECT DISTINCT ON (alias_code)
@@ -85,8 +101,7 @@ resolved_rows AS (
     FROM source_rows s
     CROSS JOIN marketplace m
     LEFT JOIN store_lookup sl
-        ON sl.normalized_store_name = s.normalized_store_name
-        OR sl.normalized_store_code = s.normalized_store_name
+        ON sl.lookup_store_name = s.normalized_store_name
     LEFT JOIN marketplace_alias_lookup pma
         ON pma.alias_code = LOWER(s.source_sku_code)
     LEFT JOIN sku_alias_lookup psa

@@ -173,7 +173,39 @@ def create_temp_staging_table(conn, *, source_system: str, source_folder: str | 
         chunksize=1000,
     )
     logger.info("Temporary staging table created: pg_temp.%s rows=%s", table_name, len(df))
+    prepare_temp_staging_table(conn, source_system=source_system, table_name=table_name)
     return table_name
+
+
+def prepare_temp_staging_table(conn, *, source_system: str, table_name: str) -> None:
+    index_columns_by_source = {
+        "lazada": [
+            "order_number",
+            "store_name",
+            "order_item_id",
+            "seller_sku",
+            "lazada_sku",
+        ],
+        "shopee": [
+            "no_pesanan",
+            "store_name",
+            "nomor_referensi_sku",
+            "sku_induk",
+        ],
+        "tiktok_tokopedia": [
+            "order_id",
+            "store_name",
+            "sku_id",
+            "seller_sku",
+        ],
+    }
+
+    columns = index_columns_by_source.get(source_system, [])
+    for column in columns:
+        conn.execute(text(f'CREATE INDEX ON pg_temp.{table_name} ("{column}")'))
+
+    conn.execute(text(f"ANALYZE pg_temp.{table_name}"))
+    logger.info("Temporary staging table indexed/analyzed: pg_temp.%s", table_name)
 
 
 def write_query_csv(conn, sql: str, output_path: str | Path) -> Path:
