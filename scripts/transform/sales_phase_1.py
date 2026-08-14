@@ -65,6 +65,8 @@ SOURCE_SQL_FILES = {
 }
 
 SUPPORTED_SOURCES = set(SOURCE_SQL_FILES)
+LOCK_TIMEOUT = "30s"
+STATEMENT_TIMEOUT = "30min"
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,6 +179,19 @@ def create_temp_staging_table(conn, *, source_system: str, source_folder: str | 
     return table_name
 
 
+def configure_transaction_guardrails(conn, *, source_system: str) -> None:
+    lock_key = f"sales_phase_1:{source_system}"
+    conn.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+    conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {"lock_key": lock_key})
+    logger.info(
+        "Transaction guardrails active: advisory_lock=%s lock_timeout=%s statement_timeout=%s",
+        lock_key,
+        LOCK_TIMEOUT,
+        STATEMENT_TIMEOUT,
+    )
+
+
 def prepare_temp_staging_table(conn, *, source_system: str, table_name: str) -> None:
     index_columns_by_source = {
         "lazada": [
@@ -243,6 +258,7 @@ def main() -> None:
         raise RuntimeError("Folder source is required. Database staging source is disabled.")
 
     with engine.begin() as conn:
+        configure_transaction_guardrails(conn, source_system=args.source_system)
         temp_table_name = create_temp_staging_table(
             conn,
             source_system=args.source_system,
@@ -271,6 +287,7 @@ def main() -> None:
             logger.info("Insert order rows")
             order_result = conn.execute(text(order_sql))
             logger.info("Insert order rows done: %s", order_result.rowcount)
+            conn.execute(text(f"ANALYZE {args.target_schema}.fact_sales_order"))
             logger.info("Insert item rows")
             item_result = conn.execute(text(item_sql))
             logger.info("Insert item rows done: %s", item_result.rowcount)
