@@ -63,6 +63,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional CSV path for top unmapped offline B2B partner rows.",
     )
+    parser.add_argument(
+        "--export-missing-orders",
+        default=None,
+        help="Optional CSV path for source DO headers that are not present in fact_sales_order after execute.",
+    )
+    parser.add_argument(
+        "--export-missing-items",
+        default=None,
+        help="Optional CSV path for source DO items that are not present in fact_sales_order_item after execute.",
+    )
     return parser.parse_args()
 
 
@@ -88,12 +98,16 @@ def main() -> None:
             allow_unmapped=args.allow_unmapped,
             export_unmapped_products=args.export_unmapped_products,
             export_unmapped_partners=args.export_unmapped_partners,
+            export_missing_orders=args.export_missing_orders,
+            export_missing_items=args.export_missing_items,
         )
 
     logger.info(
-        "Offline DO transform finished. order_rows=%s item_rows=%s",
+        "Offline DO transform finished. order_rows=%s item_rows=%s target_source_orders=%s missing_source_orders=%s",
         result.order_rows,
         result.item_rows,
+        result.target_source_orders,
+        result.missing_source_orders,
     )
 
 
