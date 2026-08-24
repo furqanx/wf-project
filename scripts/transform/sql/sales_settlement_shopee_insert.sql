@@ -61,7 +61,14 @@ resolved_rows AS (
              AND unique_fso.store_id <> COALESCE(ds.store_id, alias_store.store_id)
                 THEN unique_fso.sales_order_id
             ELSE fso.sales_order_id
-        END AS sales_order_id
+        END AS sales_order_id,
+        CASE
+            WHEN fso.sales_order_id IS NULL
+             AND unique_fso.sales_order_id IS NOT NULL
+             AND unique_fso.store_id <> COALESCE(ds.store_id, alias_store.store_id)
+                THEN TRUE
+            ELSE FALSE
+        END AS matched_by_order_id_fallback
     FROM source_rows s
     CROSS JOIN marketplace m
     LEFT JOIN {target_schema}.dim_store ds
@@ -104,7 +111,8 @@ settlement_rows AS (
         platform_discount_amount,
         shipping_amount,
         settlement_amount,
-        source_filename AS source_file
+        source_filename AS source_file,
+        matched_by_order_id_fallback
     FROM resolved_rows
     ORDER BY marketplace_id, store_id, external_order_id, released_at DESC NULLS LAST, source_filename DESC
 )
@@ -148,6 +156,12 @@ SELECT
     shipping_amount,
     settlement_amount,
     source_file,
-    'Loaded by scripts/transform/sales_settlement_phase_2.py'
+    CASE
+        WHEN sales_order_id IS NULL
+            THEN 'Loaded by scripts/transform/sales_settlement_phase_2.py; phase_1_match_status=unmatched; unmatched_reason=missing_order_source'
+        WHEN matched_by_order_id_fallback
+            THEN 'Loaded by scripts/transform/sales_settlement_phase_2.py; phase_1_match_status=matched_by_unique_order_id_fallback'
+        ELSE 'Loaded by scripts/transform/sales_settlement_phase_2.py; phase_1_match_status=matched_by_order_id_and_store'
+    END
 FROM settlement_rows
 ON CONFLICT DO NOTHING;
