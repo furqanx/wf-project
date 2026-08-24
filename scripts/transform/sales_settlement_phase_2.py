@@ -45,6 +45,8 @@ SOURCE_SQL_FILES = {
         "table": "shopee_income_main",
         "audit": "sales_settlement_shopee_audit.sql",
         "insert": "sales_settlement_shopee_insert.sql",
+        "unmatched": "sales_settlement_shopee_unmatched_orders.sql",
+        "duplicates": "sales_settlement_shopee_duplicate_settlements.sql",
     },
     "lazada": {
         "table": "lazada_income",
@@ -94,6 +96,16 @@ def parse_args() -> argparse.Namespace:
         "--export-audit-rows",
         default=None,
         help="Optional CSV path for the audit metric output.",
+    )
+    parser.add_argument(
+        "--export-unmatched-orders",
+        default=None,
+        help="Optional CSV path for settlement rows that do not resolve to fact_sales_order.",
+    )
+    parser.add_argument(
+        "--export-duplicate-settlements",
+        default=None,
+        help="Optional CSV path for duplicated settlement grain rows.",
     )
     return parser.parse_args()
 
@@ -231,6 +243,21 @@ def write_audit_csv(rows: list[dict], output_path: str | Path) -> Path:
     return path
 
 
+def write_query_csv(conn, sql: str, output_path: str | Path) -> Path:
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = conn.execute(text(sql))
+    rows = result.mappings().all()
+    columns = list(result.keys())
+
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return path
+
+
 def main() -> None:
     args = parse_args()
     ctx = TransformContext(staging_schema="pg_temp", target_schema=args.target_schema)
@@ -239,6 +266,8 @@ def main() -> None:
     sql_files = SOURCE_SQL_FILES[args.source_system]
     audit_sql = ctx.render_sql(sql_files["audit"])
     insert_sql = ctx.render_sql(sql_files["insert"])
+    unmatched_sql = ctx.render_sql(sql_files["unmatched"]) if "unmatched" in sql_files else None
+    duplicates_sql = ctx.render_sql(sql_files["duplicates"]) if "duplicates" in sql_files else None
 
     with engine.begin() as conn:
         configure_transaction_guardrails(conn, source_system=args.source_system)
@@ -256,6 +285,22 @@ def main() -> None:
             if args.export_audit_rows:
                 output_path = write_audit_csv(audit.rows, args.export_audit_rows)
                 logger.info("Audit export: %s", output_path)
+
+            if args.export_unmatched_orders:
+                if not unmatched_sql:
+                    raise RuntimeError(
+                        f"Unmatched export is not implemented for {args.source_system!r}."
+                    )
+                output_path = write_query_csv(conn, unmatched_sql, args.export_unmatched_orders)
+                logger.info("Unmatched order export: %s", output_path)
+
+            if args.export_duplicate_settlements:
+                if not duplicates_sql:
+                    raise RuntimeError(
+                        f"Duplicate settlement export is not implemented for {args.source_system!r}."
+                    )
+                output_path = write_query_csv(conn, duplicates_sql, args.export_duplicate_settlements)
+                logger.info("Duplicate settlement export: %s", output_path)
 
             if audit.value("unmapped_store_rows") > 0 and not args.allow_unmapped:
                 raise RuntimeError(
