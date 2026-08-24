@@ -38,12 +38,30 @@ marketplace AS (
     WHERE marketplace_code = 'shopee'
     LIMIT 1
 ),
+unique_order_matches AS (
+    SELECT
+        external_order_id,
+        MIN(sales_order_id) AS sales_order_id,
+        MIN(store_id) AS store_id
+    FROM {target_schema}.fact_sales_order
+    WHERE source_system = 'shopee'
+      AND sales_channel_type = 'online'
+      AND external_order_id IS NOT NULL
+    GROUP BY external_order_id
+    HAVING COUNT(*) = 1
+),
 resolved_rows AS (
     SELECT
         s.*,
         m.marketplace_id,
         COALESCE(ds.store_id, alias_store.store_id) AS store_id,
-        fso.sales_order_id
+        CASE
+            WHEN fso.sales_order_id IS NULL
+             AND unique_fso.sales_order_id IS NOT NULL
+             AND unique_fso.store_id <> COALESCE(ds.store_id, alias_store.store_id)
+                THEN unique_fso.sales_order_id
+            ELSE fso.sales_order_id
+        END AS sales_order_id
     FROM source_rows s
     CROSS JOIN marketplace m
     LEFT JOIN {target_schema}.dim_store ds
@@ -62,6 +80,8 @@ resolved_rows AS (
        AND fso.sales_channel_type = 'online'
        AND fso.external_order_id = s.external_order_id
        AND fso.store_id = COALESCE(ds.store_id, alias_store.store_id)
+    LEFT JOIN unique_order_matches unique_fso
+        ON unique_fso.external_order_id = s.external_order_id
     WHERE s.external_order_id IS NOT NULL
       AND COALESCE(ds.store_id, alias_store.store_id) IS NOT NULL
 ),
