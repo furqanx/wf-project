@@ -149,6 +149,7 @@ TIKTOK_INCOME_COLUMN_MAP = {
     'Biaya layanan Khusus LIVE'                            : 'live_specials_service_fee',
     'Voucher Xtra service fee'                             : 'voucher_xtra_service_fee',
     'Biaya akses keuntungan eksklusif'                     : 'voucher_xtra_service_fee',
+    'Biaya akses keuntungan eksklusif.1'                   : 'voucher_xtra_service_fee_duplicate',
     'Order processing fee'                                 : 'order_processing_fee',
     'Biaya pemrosesan pesanan'                             : 'order_processing_fee',
     'EAMS Program service fee'                             : 'eams_program_service_fee',
