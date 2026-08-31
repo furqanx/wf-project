@@ -1,9 +1,15 @@
-WITH marketplace AS (
+WITH source_fee AS (
+    SELECT *
+    FROM {staging_schema}.sales_settlement_fee_source
+    WHERE fee_source_sequence >= :batch_start
+      AND fee_source_sequence < :batch_end
+),
+marketplace AS (
     SELECT marketplace_id
     FROM {target_schema}.dim_marketplace
     WHERE marketplace_code = (
         SELECT source_system
-        FROM {staging_schema}.sales_settlement_fee_source
+        FROM source_fee
         LIMIT 1
     )
     LIMIT 1
@@ -48,7 +54,7 @@ resolved_rows AS (
         s.*,
         m.marketplace_id,
         sl.store_id
-    FROM {staging_schema}.sales_settlement_fee_source s
+    FROM source_fee s
     CROSS JOIN marketplace m
     LEFT JOIN store_lookup sl
         ON sl.lookup_store_name = s.normalized_store_name

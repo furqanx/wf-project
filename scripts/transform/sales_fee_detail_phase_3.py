@@ -51,6 +51,7 @@ STATEMENT_TIMEOUT = "30min"
 
 TEMP_FEE_TABLE = "sales_settlement_fee_source"
 TEMP_FEE_COLUMNS = [
+    "fee_source_sequence",
     "source_system",
     "source_table",
     "store_name",
@@ -101,6 +102,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-files", type=int, default=None)
     parser.add_argument("--export-audit", default=None)
     parser.add_argument("--export-unmatched-settlements", default=None)
+    parser.add_argument(
+        "--insert-batch-size",
+        type=int,
+        default=50_000,
+        help="Number of extracted fee rows to insert per SQL batch during execute.",
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--allow-unmatched-settlement",
@@ -510,6 +517,8 @@ def load_fee_source_dataframe(
                 totals[key] += value
 
     fee_df = pd.DataFrame(all_rows, columns=TEMP_FEE_COLUMNS)
+    if not fee_df.empty:
+        fee_df["fee_source_sequence"] = range(1, len(fee_df) + 1)
     logger.info("Loaded income rows: %s", totals["loaded_income_rows"])
     logger.info("Extracted non-zero fee rows: %s", len(fee_df))
     return fee_df, totals
@@ -533,6 +542,7 @@ def create_temp_fee_source_table(conn, df: pd.DataFrame) -> None:
     logger.info("Temporary fee source table created: pg_temp.%s rows=%s", TEMP_FEE_TABLE, len(insert_df))
 
     conn.execute(text(f'CREATE INDEX ON pg_temp.{TEMP_FEE_TABLE} ("source_system")'))
+    conn.execute(text(f'CREATE INDEX ON pg_temp.{TEMP_FEE_TABLE} ("fee_source_sequence")'))
     conn.execute(text(f'CREATE INDEX ON pg_temp.{TEMP_FEE_TABLE} ("normalized_store_name")'))
     conn.execute(text(f'CREATE INDEX ON pg_temp.{TEMP_FEE_TABLE} ("external_order_id")'))
     conn.execute(text(f'CREATE INDEX ON pg_temp.{TEMP_FEE_TABLE} ("raw_record_id")'))
@@ -724,14 +734,28 @@ def main() -> None:
                 )
 
             logger.info("Execute transform source_system=%s", args.source_system)
-            logger.info("Insert settlement fee detail rows")
-            result = conn.execute(text(insert_sql))
-            logger.info("Insert settlement fee detail rows done: %s", result.rowcount)
+            logger.info("Insert settlement fee detail rows batch_size=%s", args.insert_batch_size)
+            inserted_rows = 0
+            source_fee_rows = len(fee_df)
+            for batch_start in range(1, source_fee_rows + 1, args.insert_batch_size):
+                batch_end = min(batch_start + args.insert_batch_size, source_fee_rows + 1)
+                result = conn.execute(
+                    text(insert_sql),
+                    {"batch_start": batch_start, "batch_end": batch_end},
+                )
+                inserted_rows += max(result.rowcount or 0, 0)
+                logger.info(
+                    "Insert settlement fee detail batch done: start=%s end=%s rows=%s total_inserted=%s",
+                    batch_start,
+                    batch_end - 1,
+                    result.rowcount,
+                    inserted_rows,
+                )
             conn.execute(text(f"ANALYZE {args.target_schema}.fact_sales_settlement_fee_detail"))
         finally:
             conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{TEMP_FEE_TABLE}"))
 
-    logger.info("Transform finished. fee_detail_rows=%s", result.rowcount)
+    logger.info("Transform finished. fee_detail_rows=%s", inserted_rows)
 
 
 if __name__ == "__main__":
