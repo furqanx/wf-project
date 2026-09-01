@@ -103,6 +103,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--export-audit", default=None)
     parser.add_argument("--export-unmatched-settlements", default=None)
     parser.add_argument(
+        "--full-audit",
+        action="store_true",
+        help="Run settlement match audit. Use this for sample runs; full Shopee runs are intentionally heavy.",
+    )
+    parser.add_argument(
         "--insert-batch-size",
         type=int,
         default=50_000,
@@ -676,7 +681,12 @@ def unmatched_settlement_export_sql(target_schema: str) -> str:
 def main() -> None:
     args = parse_args()
     ctx = TransformContext(staging_schema="pg_temp", target_schema=args.target_schema)
-    audit_sql = ctx.render_sql("sales_settlement_fee_detail_audit.sql")
+    audit_sql_name = (
+        "sales_settlement_fee_detail_full_audit.sql"
+        if args.full_audit
+        else "sales_settlement_fee_detail_audit.sql"
+    )
+    audit_sql = ctx.render_sql(audit_sql_name)
     insert_sql = ctx.render_sql("sales_settlement_fee_detail_insert.sql")
     engine = get_engine(args.database)
     inserted_rows = 0
@@ -714,13 +724,18 @@ def main() -> None:
                     output_path = write_audit_csv(audit, extraction_stats, args.export_audit)
                     logger.info("Audit export: %s", output_path)
 
-                if args.export_unmatched_settlements:
+                if args.export_unmatched_settlements and args.full_audit:
                     output_path = write_query_csv(
                         conn,
                         unmatched_settlement_export_sql(args.target_schema),
                         args.export_unmatched_settlements,
                     )
                     logger.info("Unmatched settlement export: %s", output_path)
+                elif args.export_unmatched_settlements:
+                    logger.warning(
+                        "Skip unmatched settlement export in lightweight audit mode. "
+                        "Use --full-audit on a small sample if you need this CSV."
+                    )
 
             if not args.execute:
                 logger.info("Dry-run only. Add --execute to insert into target facts.")
