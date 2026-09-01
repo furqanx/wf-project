@@ -4,14 +4,16 @@ WITH source_fee AS (
     WHERE fee_source_sequence >= :batch_start
       AND fee_source_sequence < :batch_end
 ),
+source_info AS (
+    SELECT source_system
+    FROM source_fee
+    LIMIT 1
+),
 marketplace AS (
-    SELECT marketplace_id
-    FROM {target_schema}.dim_marketplace
-    WHERE marketplace_code = (
-        SELECT source_system
-        FROM source_fee
-        LIMIT 1
-    )
+    SELECT dm.marketplace_id
+    FROM {target_schema}.dim_marketplace dm
+    JOIN source_info si
+        ON si.source_system = dm.marketplace_code
     LIMIT 1
 ),
 store_lookup AS (
@@ -49,6 +51,33 @@ store_lookup AS (
     WHERE lookup_store_name IS NOT NULL
     ORDER BY lookup_store_name, priority, store_id
 ),
+settlement_lookup AS (
+    SELECT DISTINCT ON (
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        COALESCE(fss.external_order_item_id, ''),
+        COALESCE(fss.source_sku_code, '')
+    )
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        fss.external_order_item_id,
+        fss.source_sku_code,
+        fss.sales_settlement_id,
+        fss.sales_order_id
+    FROM {target_schema}.fact_sales_settlement fss
+    JOIN source_info si
+        ON si.source_system = fss.source_system
+    WHERE fss.sales_channel_type = 'online'
+    ORDER BY
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        COALESCE(fss.external_order_item_id, ''),
+        COALESCE(fss.source_sku_code, ''),
+        fss.sales_settlement_id
+),
 resolved_rows AS (
     SELECT
         s.*,
@@ -65,27 +94,18 @@ settlement_matches AS (
         fss.sales_settlement_id,
         fss.sales_order_id
     FROM resolved_rows r
-    LEFT JOIN LATERAL (
-        SELECT fss.sales_settlement_id, fss.sales_order_id
-        FROM {target_schema}.fact_sales_settlement fss
-        WHERE fss.source_system = r.source_system
-          AND fss.sales_channel_type = 'online'
-          AND fss.store_id = r.store_id
-          AND (
-              (
-                  r.source_system = 'lazada'
-                  AND fss.external_order_id = r.external_order_id
-                  AND COALESCE(fss.external_order_item_id, '') = COALESCE(r.external_order_item_id, '')
-                  AND COALESCE(fss.source_sku_code, '') = COALESCE(r.source_sku_code, '')
-              )
-              OR (
-                  r.source_system IN ('shopee', 'tiktok_tokopedia')
-                  AND fss.external_order_id = r.external_order_id
-              )
-          )
-        ORDER BY fss.sales_settlement_id
-        LIMIT 1
-    ) fss ON TRUE
+    LEFT JOIN settlement_lookup fss
+        ON fss.source_system = r.source_system
+       AND fss.store_id = r.store_id
+       AND fss.external_order_id = r.external_order_id
+       AND (
+            (
+                r.source_system = 'lazada'
+                AND COALESCE(fss.external_order_item_id, '') = COALESCE(r.external_order_item_id, '')
+                AND COALESCE(fss.source_sku_code, '') = COALESCE(r.source_sku_code, '')
+            )
+            OR r.source_system IN ('shopee', 'tiktok_tokopedia')
+       )
 )
 INSERT INTO {target_schema}.fact_sales_settlement_fee_detail (
     source_system,
