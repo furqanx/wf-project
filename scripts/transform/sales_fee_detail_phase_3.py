@@ -679,14 +679,16 @@ def main() -> None:
     audit_sql = ctx.render_sql("sales_settlement_fee_detail_audit.sql")
     insert_sql = ctx.render_sql("sales_settlement_fee_detail_insert.sql")
     engine = get_engine(args.database)
+    inserted_rows = 0
 
-    with engine.begin() as conn:
-        configure_transaction_guardrails(conn, source_system=args.source_system)
-        aliases = fetch_fee_aliases(
-            conn,
-            source_system=args.source_system,
-            target_schema=args.target_schema,
-        )
+    with engine.connect() as conn:
+        with conn.begin():
+            configure_transaction_guardrails(conn, source_system=args.source_system)
+            aliases = fetch_fee_aliases(
+                conn,
+                source_system=args.source_system,
+                target_schema=args.target_schema,
+            )
         logger.info("Active fee aliases: %s", len(aliases))
 
         fee_df, extraction_stats = load_fee_source_dataframe(
@@ -696,26 +698,29 @@ def main() -> None:
             allow_review_fees=args.allow_review_fees,
             limit_files=args.limit_files,
         )
-        create_temp_fee_source_table(conn, fee_df)
 
         try:
-            logger.info("Run audit source_system=%s", args.source_system)
-            audit = run_audit_on_connection(conn, audit_sql)
-            print_audit(audit)
-            for metric, value in extraction_stats.items():
-                print(f"{metric},{value},Python extraction statistic before temp table insert.")
+            with conn.begin():
+                configure_transaction_guardrails(conn, source_system=args.source_system)
+                create_temp_fee_source_table(conn, fee_df)
 
-            if args.export_audit:
-                output_path = write_audit_csv(audit, extraction_stats, args.export_audit)
-                logger.info("Audit export: %s", output_path)
+                logger.info("Run audit source_system=%s", args.source_system)
+                audit = run_audit_on_connection(conn, audit_sql)
+                print_audit(audit)
+                for metric, value in extraction_stats.items():
+                    print(f"{metric},{value},Python extraction statistic before temp table insert.")
 
-            if args.export_unmatched_settlements:
-                output_path = write_query_csv(
-                    conn,
-                    unmatched_settlement_export_sql(args.target_schema),
-                    args.export_unmatched_settlements,
-                )
-                logger.info("Unmatched settlement export: %s", output_path)
+                if args.export_audit:
+                    output_path = write_audit_csv(audit, extraction_stats, args.export_audit)
+                    logger.info("Audit export: %s", output_path)
+
+                if args.export_unmatched_settlements:
+                    output_path = write_query_csv(
+                        conn,
+                        unmatched_settlement_export_sql(args.target_schema),
+                        args.export_unmatched_settlements,
+                    )
+                    logger.info("Unmatched settlement export: %s", output_path)
 
             if not args.execute:
                 logger.info("Dry-run only. Add --execute to insert into target facts.")
@@ -735,14 +740,15 @@ def main() -> None:
 
             logger.info("Execute transform source_system=%s", args.source_system)
             logger.info("Insert settlement fee detail rows batch_size=%s", args.insert_batch_size)
-            inserted_rows = 0
             source_fee_rows = len(fee_df)
             for batch_start in range(1, source_fee_rows + 1, args.insert_batch_size):
                 batch_end = min(batch_start + args.insert_batch_size, source_fee_rows + 1)
-                result = conn.execute(
-                    text(insert_sql),
-                    {"batch_start": batch_start, "batch_end": batch_end},
-                )
+                with conn.begin():
+                    configure_transaction_guardrails(conn, source_system=args.source_system)
+                    result = conn.execute(
+                        text(insert_sql),
+                        {"batch_start": batch_start, "batch_end": batch_end},
+                    )
                 inserted_rows += max(result.rowcount or 0, 0)
                 logger.info(
                     "Insert settlement fee detail batch done: start=%s end=%s rows=%s total_inserted=%s",
@@ -751,9 +757,17 @@ def main() -> None:
                     result.rowcount,
                     inserted_rows,
                 )
-            conn.execute(text(f"ANALYZE {args.target_schema}.fact_sales_settlement_fee_detail"))
+
+            with conn.begin():
+                configure_transaction_guardrails(conn, source_system=args.source_system)
+                conn.execute(text(f"ANALYZE {args.target_schema}.fact_sales_settlement_fee_detail"))
         finally:
-            conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{TEMP_FEE_TABLE}"))
+            try:
+                if not conn.closed:
+                    with conn.begin():
+                        conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{TEMP_FEE_TABLE}"))
+            except Exception as exc:
+                logger.warning("Could not drop temp table after run: %s", exc)
 
     logger.info("Transform finished. fee_detail_rows=%s", inserted_rows)
 
