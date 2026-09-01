@@ -113,6 +113,15 @@ def parse_args() -> argparse.Namespace:
         default=50_000,
         help="Number of extracted fee rows to insert per SQL batch during execute.",
     )
+    parser.add_argument(
+        "--file-batch-size",
+        type=int,
+        default=None,
+        help=(
+            "Number of income files loaded per cycle. Use this for large sources "
+            "such as Shopee to avoid a very large temporary table."
+        ),
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--allow-unmatched-settlement",
@@ -480,6 +489,23 @@ def load_fee_source_dataframe(
     limit_files: int | None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     files = discover_income_files(source_folder, source_system, limit_files=limit_files)
+    return load_fee_source_dataframe_from_files(
+        files=files,
+        source_folder=source_folder,
+        source_system=source_system,
+        aliases=aliases,
+        allow_review_fees=allow_review_fees,
+    )
+
+
+def load_fee_source_dataframe_from_files(
+    *,
+    files: list[MarketplaceFile],
+    source_folder: str | Path,
+    source_system: str,
+    aliases: list[FeeAlias],
+    allow_review_fees: bool,
+) -> tuple[pd.DataFrame, dict[str, int]]:
     all_rows: list[dict[str, Any]] = []
     totals = {
         "income_files": len(files),
@@ -678,6 +704,21 @@ def unmatched_settlement_export_sql(target_schema: str) -> str:
     """
 
 
+def chunked(items: list[MarketplaceFile], size: int | None) -> list[list[MarketplaceFile]]:
+    if size is None or size <= 0:
+        return [items]
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def batch_export_path(path_value: str | None, batch_index: int, batch_count: int) -> Path | None:
+    if not path_value:
+        return None
+    path = Path(path_value).expanduser().resolve()
+    if batch_count <= 1:
+        return path
+    return path.with_name(f"{path.stem}_batch_{batch_index:04d}{path.suffix}")
+
+
 def main() -> None:
     args = parse_args()
     ctx = TransformContext(staging_schema="pg_temp", target_schema=args.target_schema)
@@ -690,6 +731,7 @@ def main() -> None:
     insert_sql = ctx.render_sql("sales_settlement_fee_detail_insert.sql")
     engine = get_engine(args.database)
     inserted_rows = 0
+    total_fee_rows = 0
 
     with engine.connect() as conn:
         with conn.begin():
@@ -701,90 +743,122 @@ def main() -> None:
             )
         logger.info("Active fee aliases: %s", len(aliases))
 
-        fee_df, extraction_stats = load_fee_source_dataframe(
-            source_folder=args.source_folder,
-            source_system=args.source_system,
-            aliases=aliases,
-            allow_review_fees=args.allow_review_fees,
+        files = discover_income_files(
+            args.source_folder,
+            args.source_system,
             limit_files=args.limit_files,
         )
+        file_batches = chunked(files, args.file_batch_size)
+        logger.info("File batches: %s batch_size=%s", len(file_batches), args.file_batch_size or "all")
 
-        try:
-            with conn.begin():
-                configure_transaction_guardrails(conn, source_system=args.source_system)
-                create_temp_fee_source_table(conn, fee_df)
+        for batch_index, batch_files in enumerate(file_batches, 1):
+            logger.info(
+                "Process file batch %s/%s files=%s",
+                batch_index,
+                len(file_batches),
+                len(batch_files),
+            )
+            fee_df, extraction_stats = load_fee_source_dataframe_from_files(
+                files=batch_files,
+                source_folder=args.source_folder,
+                source_system=args.source_system,
+                aliases=aliases,
+                allow_review_fees=args.allow_review_fees,
+            )
+            total_fee_rows += len(fee_df)
 
-                logger.info("Run audit source_system=%s", args.source_system)
-                audit = run_audit_on_connection(conn, audit_sql)
-                print_audit(audit)
-                for metric, value in extraction_stats.items():
-                    print(f"{metric},{value},Python extraction statistic before temp table insert.")
-
-                if args.export_audit:
-                    output_path = write_audit_csv(audit, extraction_stats, args.export_audit)
-                    logger.info("Audit export: %s", output_path)
-
-                if args.export_unmatched_settlements and args.full_audit:
-                    output_path = write_query_csv(
-                        conn,
-                        unmatched_settlement_export_sql(args.target_schema),
-                        args.export_unmatched_settlements,
-                    )
-                    logger.info("Unmatched settlement export: %s", output_path)
-                elif args.export_unmatched_settlements:
-                    logger.warning(
-                        "Skip unmatched settlement export in lightweight audit mode. "
-                        "Use --full-audit on a small sample if you need this CSV."
-                    )
-
-            if not args.execute:
-                logger.info("Dry-run only. Add --execute to insert into target facts.")
-                return
-
-            if audit.value("unmapped_store_rows") > 0 and not args.allow_unmapped_store:
-                raise RuntimeError(
-                    "Transform blocked: fee rows with unmapped stores detected. "
-                    "Fix store mappings or rerun with --allow-unmapped-store for controlled testing."
-                )
-
-            if audit.value("unmatched_settlement_rows") > 0 and not args.allow_unmatched_settlement:
-                raise RuntimeError(
-                    "Transform blocked: fee rows that do not resolve to fact_sales_settlement detected. "
-                    "Run Phase 2 first, fix settlement matching, or rerun with --allow-unmatched-settlement."
-                )
-
-            logger.info("Execute transform source_system=%s", args.source_system)
-            logger.info("Insert settlement fee detail rows batch_size=%s", args.insert_batch_size)
-            source_fee_rows = len(fee_df)
-            for batch_start in range(1, source_fee_rows + 1, args.insert_batch_size):
-                batch_end = min(batch_start + args.insert_batch_size, source_fee_rows + 1)
+            try:
                 with conn.begin():
                     configure_transaction_guardrails(conn, source_system=args.source_system)
-                    result = conn.execute(
-                        text(insert_sql),
-                        {"batch_start": batch_start, "batch_end": batch_end},
-                    )
-                inserted_rows += max(result.rowcount or 0, 0)
-                logger.info(
-                    "Insert settlement fee detail batch done: start=%s end=%s rows=%s total_inserted=%s",
-                    batch_start,
-                    batch_end - 1,
-                    result.rowcount,
-                    inserted_rows,
-                )
+                    create_temp_fee_source_table(conn, fee_df)
 
+                    logger.info("Run audit source_system=%s", args.source_system)
+                    audit = run_audit_on_connection(conn, audit_sql)
+                    print_audit(audit)
+                    for metric, value in extraction_stats.items():
+                        print(f"{metric},{value},Python extraction statistic before temp table insert.")
+
+                    audit_export_path = batch_export_path(
+                        args.export_audit,
+                        batch_index,
+                        len(file_batches),
+                    )
+                    if audit_export_path:
+                        output_path = write_audit_csv(audit, extraction_stats, audit_export_path)
+                        logger.info("Audit export: %s", output_path)
+
+                    unmatched_export_path = batch_export_path(
+                        args.export_unmatched_settlements,
+                        batch_index,
+                        len(file_batches),
+                    )
+                    if unmatched_export_path and args.full_audit:
+                        output_path = write_query_csv(
+                            conn,
+                            unmatched_settlement_export_sql(args.target_schema),
+                            unmatched_export_path,
+                        )
+                        logger.info("Unmatched settlement export: %s", output_path)
+                    elif args.export_unmatched_settlements:
+                        logger.warning(
+                            "Skip unmatched settlement export in lightweight audit mode. "
+                            "Use --full-audit on a small sample if you need this CSV."
+                        )
+
+                if not args.execute:
+                    logger.info("Dry-run file batch only. Add --execute to insert into target facts.")
+                    continue
+
+                if audit.value("unmapped_store_rows") > 0 and not args.allow_unmapped_store:
+                    raise RuntimeError(
+                        "Transform blocked: fee rows with unmapped stores detected. "
+                        "Fix store mappings or rerun with --allow-unmapped-store for controlled testing."
+                    )
+
+                if audit.value("unmatched_settlement_rows") > 0 and not args.allow_unmatched_settlement:
+                    raise RuntimeError(
+                        "Transform blocked: fee rows that do not resolve to fact_sales_settlement detected. "
+                        "Run Phase 2 first, fix settlement matching, or rerun with --allow-unmatched-settlement."
+                    )
+
+                logger.info("Execute transform source_system=%s", args.source_system)
+                logger.info("Insert settlement fee detail rows batch_size=%s", args.insert_batch_size)
+                source_fee_rows = len(fee_df)
+                for row_batch_start in range(1, source_fee_rows + 1, args.insert_batch_size):
+                    row_batch_end = min(row_batch_start + args.insert_batch_size, source_fee_rows + 1)
+                    with conn.begin():
+                        configure_transaction_guardrails(conn, source_system=args.source_system)
+                        result = conn.execute(
+                            text(insert_sql),
+                            {"batch_start": row_batch_start, "batch_end": row_batch_end},
+                        )
+                    inserted_rows += max(result.rowcount or 0, 0)
+                    logger.info(
+                        "Insert settlement fee detail batch done: file_batch=%s row_start=%s row_end=%s rows=%s total_inserted=%s",
+                        batch_index,
+                        row_batch_start,
+                        row_batch_end - 1,
+                        result.rowcount,
+                        inserted_rows,
+                    )
+            finally:
+                try:
+                    if not conn.closed:
+                        with conn.begin():
+                            conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{TEMP_FEE_TABLE}"))
+                except Exception as exc:
+                    logger.warning("Could not drop temp table after file batch: %s", exc)
+
+        if args.execute:
             with conn.begin():
                 configure_transaction_guardrails(conn, source_system=args.source_system)
                 conn.execute(text(f"ANALYZE {args.target_schema}.fact_sales_settlement_fee_detail"))
-        finally:
-            try:
-                if not conn.closed:
-                    with conn.begin():
-                        conn.execute(text(f"DROP TABLE IF EXISTS pg_temp.{TEMP_FEE_TABLE}"))
-            except Exception as exc:
-                logger.warning("Could not drop temp table after run: %s", exc)
 
-    logger.info("Transform finished. fee_detail_rows=%s", inserted_rows)
+    logger.info(
+        "Transform finished. source_fee_rows=%s fee_detail_rows=%s",
+        total_fee_rows,
+        inserted_rows,
+    )
 
 
 if __name__ == "__main__":

@@ -51,33 +51,6 @@ store_lookup AS (
     WHERE lookup_store_name IS NOT NULL
     ORDER BY lookup_store_name, priority, store_id
 ),
-settlement_lookup AS (
-    SELECT DISTINCT ON (
-        fss.source_system,
-        fss.store_id,
-        fss.external_order_id,
-        COALESCE(fss.external_order_item_id, ''),
-        COALESCE(fss.source_sku_code, '')
-    )
-        fss.source_system,
-        fss.store_id,
-        fss.external_order_id,
-        fss.external_order_item_id,
-        fss.source_sku_code,
-        fss.sales_settlement_id,
-        fss.sales_order_id
-    FROM {target_schema}.fact_sales_settlement fss
-    JOIN source_info si
-        ON si.source_system = fss.source_system
-    WHERE fss.sales_channel_type = 'online'
-    ORDER BY
-        fss.source_system,
-        fss.store_id,
-        fss.external_order_id,
-        COALESCE(fss.external_order_item_id, ''),
-        COALESCE(fss.source_sku_code, ''),
-        fss.sales_settlement_id
-),
 resolved_rows AS (
     SELECT
         s.*,
@@ -87,6 +60,77 @@ resolved_rows AS (
     CROSS JOIN marketplace m
     LEFT JOIN store_lookup sl
         ON sl.lookup_store_name = s.normalized_store_name
+),
+match_grain AS (
+    SELECT DISTINCT
+        source_system,
+        store_id,
+        external_order_id,
+        CASE
+            WHEN source_system = 'lazada' THEN COALESCE(external_order_item_id, '')
+            ELSE ''
+        END AS match_external_order_item_id,
+        CASE
+            WHEN source_system = 'lazada' THEN COALESCE(source_sku_code, '')
+            ELSE ''
+        END AS match_source_sku_code
+    FROM resolved_rows
+    WHERE store_id IS NOT NULL
+),
+settlement_lookup AS (
+    SELECT DISTINCT ON (
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.external_order_item_id, '')
+            ELSE ''
+        END,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.source_sku_code, '')
+            ELSE ''
+        END
+    )
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.external_order_item_id, '')
+            ELSE ''
+        END AS match_external_order_item_id,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.source_sku_code, '')
+            ELSE ''
+        END AS match_source_sku_code,
+        fss.sales_settlement_id,
+        fss.sales_order_id
+    FROM {target_schema}.fact_sales_settlement fss
+    JOIN match_grain mg
+        ON mg.source_system = fss.source_system
+       AND mg.store_id = fss.store_id
+       AND mg.external_order_id = fss.external_order_id
+       AND mg.match_external_order_item_id = CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.external_order_item_id, '')
+            ELSE ''
+        END
+       AND mg.match_source_sku_code = CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.source_sku_code, '')
+            ELSE ''
+        END
+    WHERE fss.sales_channel_type = 'online'
+    ORDER BY
+        fss.source_system,
+        fss.store_id,
+        fss.external_order_id,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.external_order_item_id, '')
+            ELSE ''
+        END,
+        CASE
+            WHEN fss.source_system = 'lazada' THEN COALESCE(fss.source_sku_code, '')
+            ELSE ''
+        END,
+        fss.sales_settlement_id
 ),
 settlement_matches AS (
     SELECT
@@ -98,14 +142,14 @@ settlement_matches AS (
         ON fss.source_system = r.source_system
        AND fss.store_id = r.store_id
        AND fss.external_order_id = r.external_order_id
-       AND (
-            (
-                r.source_system = 'lazada'
-                AND COALESCE(fss.external_order_item_id, '') = COALESCE(r.external_order_item_id, '')
-                AND COALESCE(fss.source_sku_code, '') = COALESCE(r.source_sku_code, '')
-            )
-            OR r.source_system IN ('shopee', 'tiktok_tokopedia')
-       )
+       AND fss.match_external_order_item_id = CASE
+            WHEN r.source_system = 'lazada' THEN COALESCE(r.external_order_item_id, '')
+            ELSE ''
+       END
+       AND fss.match_source_sku_code = CASE
+            WHEN r.source_system = 'lazada' THEN COALESCE(r.source_sku_code, '')
+            ELSE ''
+       END
 )
 INSERT INTO {target_schema}.fact_sales_settlement_fee_detail (
     source_system,
