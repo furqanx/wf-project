@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS public.data_quality_issue (
 
     issue_amount numeric(18, 2),
     currency_code text NOT NULL DEFAULT 'IDR',
+    issue_occurred_at timestamptz,
 
     issue_description text,
     recommended_treatment text,
@@ -68,6 +69,9 @@ CREATE TABLE IF NOT EXISTS public.data_quality_issue (
     )
 );
 
+ALTER TABLE public.data_quality_issue
+ADD COLUMN IF NOT EXISTS issue_occurred_at timestamptz;
+
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_type_status
 ON public.data_quality_issue (issue_type, issue_status);
 
@@ -91,5 +95,8 @@ ON public.data_quality_issue (marketplace_id, store_id);
 
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_detected
 ON public.data_quality_issue (last_detected_at);
+
+CREATE INDEX IF NOT EXISTS idx_data_quality_issue_occurred
+ON public.data_quality_issue (issue_occurred_at);
 
 COMMIT;
