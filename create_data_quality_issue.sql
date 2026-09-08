@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS public.data_quality_issue (
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_type_status
 ON public.data_quality_issue (issue_type, issue_status);
 
+CREATE INDEX IF NOT EXISTS idx_data_quality_issue_resolved_lookup
+ON public.data_quality_issue (
+    detected_by,
+    issue_domain,
+    issue_status,
+    issue_type,
+    source_system
+);
+
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_source
 ON public.data_quality_issue (source_system, sales_channel_type);
 

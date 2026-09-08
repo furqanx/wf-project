@@ -27,6 +27,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+LOCK_TIMEOUT = "30s"
+STATEMENT_TIMEOUT = "20min"
 
 ISSUE_TYPES = [
     "phase1_order_without_settlement",
@@ -536,6 +538,28 @@ def print_summary(rows: list[dict[str, Any]]) -> None:
         print(",".join(str(row.get(column, "")) for column in columns))
 
 
+def configure_transaction_guardrails(conn, *, source_system: str | None) -> None:
+    from sqlalchemy import text
+
+    lock_key = f"sales_data_quality_issues:{source_system or 'all'}"
+    conn.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+    lock_acquired = conn.execute(
+        text("SELECT pg_try_advisory_xact_lock(hashtext(:lock_key))"),
+        {"lock_key": lock_key},
+    ).scalar_one()
+    if not lock_acquired:
+        raise RuntimeError(
+            f"Another sales_data_quality_issues run is still active for lock {lock_key!r}."
+        )
+    logger.info(
+        "Transaction guardrails active: advisory_lock=%s lock_timeout=%s statement_timeout=%s",
+        lock_key,
+        LOCK_TIMEOUT,
+        STATEMENT_TIMEOUT,
+    )
+
+
 def materialize_current_issues(conn, target_schema: str, params: dict[str, Any]) -> int:
     from sqlalchemy import bindparam, text
 
@@ -587,6 +611,7 @@ def main() -> None:
     )
 
     with engine.begin() as conn:
+        configure_transaction_guardrails(conn, source_system=args.source_system)
         materialize_current_issues(conn, target_schema, current_issue_params)
         summary = fetch_rows(conn, temp_summary_sql(), {})
         print_summary(summary)
@@ -608,6 +633,7 @@ def main() -> None:
 
     if args.execute and args.close_resolved:
         with engine.begin() as conn:
+            configure_transaction_guardrails(conn, source_system=args.source_system)
             materialize_current_issues(conn, target_schema, current_issue_params)
             close_result = conn.execute(
                 text(close_resolved_sql(target_schema)).bindparams(bindparam("source_system")),
