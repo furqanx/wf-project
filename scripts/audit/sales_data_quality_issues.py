@@ -345,18 +345,25 @@ def current_issues_sql(target_schema: str) -> str:
     """
 
 
-def summary_sql(target_schema: str) -> str:
+def create_current_issue_temp_sql(target_schema: str) -> str:
+    validate_identifier(target_schema, "target_schema")
     return f"""
-    WITH current_issues AS (
+    CREATE TEMP TABLE sales_data_quality_current_issue ON COMMIT DROP AS
+    SELECT * FROM (
         {current_issues_body_sql(target_schema)}
-    )
+    ) current_issues;
+    """
+
+
+def temp_summary_sql() -> str:
+    return """
     SELECT
         source_system,
         issue_type,
         issue_severity,
         COUNT(*) AS issue_rows,
         COALESCE(SUM(issue_amount), 0) AS issue_amount_sum
-    FROM current_issues
+    FROM pg_temp.sales_data_quality_current_issue
     GROUP BY source_system, issue_type, issue_severity
     ORDER BY source_system, issue_type;
     """
@@ -365,9 +372,6 @@ def summary_sql(target_schema: str) -> str:
 def upsert_sql(target_schema: str) -> str:
     validate_identifier(target_schema, "target_schema")
     return f"""
-    WITH current_issues AS (
-        {current_issues_body_sql(target_schema)}
-    )
     INSERT INTO {target_schema}.data_quality_issue (
         issue_key,
         issue_domain,
@@ -443,7 +447,7 @@ def upsert_sql(target_schema: str) -> str:
         NULL::timestamptz,
         now(),
         now()
-    FROM current_issues
+    FROM pg_temp.sales_data_quality_current_issue
     ON CONFLICT (issue_key) DO UPDATE SET
         issue_severity = EXCLUDED.issue_severity,
         issue_status = CASE
@@ -473,17 +477,14 @@ def upsert_sql(target_schema: str) -> str:
         run_id = EXCLUDED.run_id,
         last_detected_at = now(),
         resolved_at = NULL,
-        updated_at = now()
-    RETURNING issue_key;
+        updated_at = now();
     """
 
 
 def close_resolved_sql(target_schema: str) -> str:
     validate_identifier(target_schema, "target_schema")
+    issue_type_list = ", ".join(f"'{issue_type}'" for issue_type in ISSUE_TYPES)
     return f"""
-    WITH current_issues AS (
-        {current_issues_body_sql(target_schema)}
-    )
     UPDATE {target_schema}.data_quality_issue dqi
     SET
         issue_status = 'resolved',
@@ -493,21 +494,22 @@ def close_resolved_sql(target_schema: str) -> str:
     WHERE dqi.issue_domain = 'sales_money_flow'
       AND dqi.detected_by = 'scripts/audit/sales_data_quality_issues.py'
       AND dqi.issue_status = 'open'
-      AND dqi.issue_type IN :issue_types
+      AND dqi.issue_type IN ({issue_type_list})
       AND (:source_system IS NULL OR dqi.source_system = :source_system)
       AND NOT EXISTS (
           SELECT 1
-          FROM current_issues ci
+          FROM pg_temp.sales_data_quality_current_issue ci
           WHERE ci.issue_key = dqi.issue_key
-      )
-    RETURNING dqi.issue_key;
+      );
     """
 
 
 def fetch_rows(conn, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     from sqlalchemy import bindparam, text
 
-    stmt = text(sql).bindparams(bindparam("source_system"))
+    stmt = text(sql)
+    if ":source_system" in sql:
+        stmt = stmt.bindparams(bindparam("source_system"))
     result = conn.execute(stmt, params)
     return [dict(row._mapping) for row in result]
 
@@ -534,6 +536,37 @@ def print_summary(rows: list[dict[str, Any]]) -> None:
         print(",".join(str(row.get(column, "")) for column in columns))
 
 
+def materialize_current_issues(conn, target_schema: str, params: dict[str, Any]) -> int:
+    from sqlalchemy import bindparam, text
+
+    logger.info("Materialize current issue rows into temporary table")
+    conn.execute(text("DROP TABLE IF EXISTS pg_temp.sales_data_quality_current_issue"))
+    conn.execute(
+        text(create_current_issue_temp_sql(target_schema)).bindparams(
+            bindparam("source_system")
+        ),
+        params,
+    )
+    conn.execute(
+        text(
+            "CREATE UNIQUE INDEX sales_data_quality_current_issue_key_idx "
+            "ON pg_temp.sales_data_quality_current_issue (issue_key)"
+        )
+    )
+    conn.execute(
+        text(
+            "CREATE INDEX sales_data_quality_current_issue_source_idx "
+            "ON pg_temp.sales_data_quality_current_issue (source_system, issue_type)"
+        )
+    )
+    conn.execute(text("ANALYZE pg_temp.sales_data_quality_current_issue"))
+    current_issue_count = conn.execute(
+        text("SELECT COUNT(*) FROM pg_temp.sales_data_quality_current_issue")
+    ).scalar_one()
+    logger.info("Current issue rows materialized: %s", current_issue_count)
+    return int(current_issue_count)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -543,7 +576,7 @@ def main() -> None:
 
     target_schema = args.target_schema
     validate_identifier(target_schema, "target_schema")
-    params = {"source_system": args.source_system, "run_id": args.run_id}
+    current_issue_params = {"source_system": args.source_system}
 
     engine = get_engine(args.database)
     logger.info(
@@ -554,7 +587,8 @@ def main() -> None:
     )
 
     with engine.begin() as conn:
-        summary = fetch_rows(conn, summary_sql(target_schema), params)
+        materialize_current_issues(conn, target_schema, current_issue_params)
+        summary = fetch_rows(conn, temp_summary_sql(), {})
         print_summary(summary)
 
         if args.export_summary:
@@ -566,25 +600,23 @@ def main() -> None:
             logger.info("Dry-run only. Add --execute to upsert data_quality_issue rows.")
             return
 
-        upserted_rows = conn.execute(
-            text(upsert_sql(target_schema)).bindparams(bindparam("source_system")),
-            params,
-        ).fetchall()
-        logger.info("Upserted data_quality_issue rows: %s", len(upserted_rows))
+        upsert_result = conn.execute(
+            text(upsert_sql(target_schema)),
+            {"run_id": args.run_id},
+        )
+        logger.info("Upserted data_quality_issue rows: %s", upsert_result.rowcount)
 
-        if args.close_resolved:
-            closed_rows = conn.execute(
-                text(close_resolved_sql(target_schema)).bindparams(
-                    bindparam("source_system"),
-                    bindparam("issue_types", expanding=True),
-                ),
+    if args.execute and args.close_resolved:
+        with engine.begin() as conn:
+            materialize_current_issues(conn, target_schema, current_issue_params)
+            close_result = conn.execute(
+                text(close_resolved_sql(target_schema)).bindparams(bindparam("source_system")),
                 {
                     "source_system": args.source_system,
                     "run_id": args.run_id,
-                    "issue_types": ISSUE_TYPES,
                 },
-            ).fetchall()
-            logger.info("Closed resolved data_quality_issue rows: %s", len(closed_rows))
+            )
+            logger.info("Closed resolved data_quality_issue rows: %s", close_result.rowcount)
 
 
 if __name__ == "__main__":
