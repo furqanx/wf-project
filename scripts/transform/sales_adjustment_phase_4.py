@@ -57,7 +57,7 @@ warnings.filterwarnings(
     module="openpyxl.styles.stylesheet",
 )
 
-SUPPORTED_SOURCES = {"tiktok_tokopedia"}
+SUPPORTED_SOURCES = {"lazada", "shopee", "tiktok_tokopedia"}
 LOCK_TIMEOUT = "30s"
 STATEMENT_TIMEOUT = "30min"
 
@@ -79,6 +79,7 @@ TEMP_ADJUSTMENT_COLUMNS = [
     "sign_rule",
     "sign_confidence",
     "review_status",
+    "phase4_label",
     "currency_code",
     "adjustment_occurred_at_text",
     "source_file",
@@ -88,6 +89,28 @@ TEMP_ADJUSTMENT_COLUMNS = [
 ]
 
 NON_ORDER_TRANSACTION_TYPES = {"order", "pesanan"}
+PHASE4_ALLOWED_RAW_NAMES: dict[tuple[str, str], set[str]] = {
+    ("lazada", "lazada_income"): {
+        "Klaim Barang Hilang",
+        "Klaim Barang Rusak",
+        "Penyesuaian saldo penjual - kredit",
+    },
+    ("shopee", "shopee_income_adjustment"): {
+        "BD Marketing",
+        "Kompensasi Jasa Kirim",
+        "Kompensasi atas pesanan hilang",
+        "Lainnya",
+        "Logistik",
+        "Pengembalian Barang/Dana setelah Dana Dilepaskan",
+        "Penyesuaian Terkait Jasa Kirim",
+        "Penyesuaian/Kompensasi Pengembalian Barang/Dana",
+    },
+}
+PHASE4_REVIEW_RAW_NAMES: set[tuple[str, str, str]] = {
+    ("shopee", "shopee_income_adjustment", "BD Marketing"),
+    ("shopee", "shopee_income_adjustment", "Lainnya"),
+    ("shopee", "shopee_income_adjustment", "Logistik"),
+}
 
 
 @dataclass(frozen=True)
@@ -156,6 +179,12 @@ def normalize_transaction_type(value: Any) -> str:
 
 
 def is_phase4_alias(alias: FeeAlias) -> bool:
+    if alias.source_system in {"lazada", "shopee"}:
+        return alias.raw_fee_name in PHASE4_ALLOWED_RAW_NAMES.get(
+            (alias.source_system, alias.source_table),
+            set(),
+        )
+
     searchable = " ".join(
         [
             alias.source_table,
@@ -165,13 +194,91 @@ def is_phase4_alias(alias: FeeAlias) -> bool:
             alias.amount_column,
         ]
     )
-    return bool(ADJUSTMENT_KEYWORD_RE.search(searchable))
+    return alias.source_system == "tiktok_tokopedia" and bool(ADJUSTMENT_KEYWORD_RE.search(searchable))
 
 
-def is_phase4_income_row(source_system: str, row: pd.Series) -> bool:
-    if source_system != "tiktok_tokopedia":
-        return False
-    return normalize_transaction_type(row.get("type")) not in NON_ORDER_TRANSACTION_TYPES
+def is_phase4_review_candidate(alias: FeeAlias) -> bool:
+    return (alias.source_system, alias.source_table, alias.raw_fee_name) in PHASE4_REVIEW_RAW_NAMES
+
+
+def is_phase4_income_row(source_system: str, loaded: LoadedFrame, row: pd.Series) -> bool:
+    if source_system == "tiktok_tokopedia":
+        return normalize_transaction_type(row.get("type")) not in NON_ORDER_TRANSACTION_TYPES
+    if source_system == "shopee":
+        return loaded.table_name == "shopee_income_adjustment"
+    if source_system == "lazada":
+        return loaded.table_name == "lazada_income"
+    return False
+
+
+def row_fee_name(row: pd.Series, alias: FeeAlias) -> str | None:
+    return clean_text(row.get(alias.mapped_column))
+
+
+def adjustment_external_id(
+    *,
+    source_system: str,
+    loaded: LoadedFrame,
+    row_number: int,
+    row: pd.Series,
+    alias: FeeAlias,
+) -> str | None:
+    if source_system == "tiktok_tokopedia":
+        return clean_text(row.get("order_adjustment_id"))
+
+    if source_system == "shopee":
+        linked_order = clean_text(row.get("no_pesanan_terhubung"))
+        return linked_order or f"{loaded.source_path.name}:{loaded.sheet_name or ''}:{row_number}"
+
+    if source_system == "lazada":
+        parts = [
+            clean_text(row.get("nomor_laporan")),
+            clean_text(row.get("nomor_pesanan")) or clean_text(row.get("id_pesanan")),
+            clean_text(row.get("id_pesanan")),
+            clean_text(row.get("sku_penjual")) or clean_text(row.get("lazada_sku")),
+            alias.raw_fee_name,
+            row_number,
+        ]
+        return "|".join(str(part) for part in parts if part not in {None, ""})
+
+    return None
+
+
+def related_external_order_id(source_system: str, row: pd.Series) -> str | None:
+    if source_system == "tiktok_tokopedia":
+        return clean_text(row.get("related_order_id"))
+    if source_system == "shopee":
+        return clean_text(row.get("no_pesanan_terhubung"))
+    if source_system == "lazada":
+        return clean_text(row.get("nomor_pesanan")) or clean_text(row.get("id_pesanan"))
+    return None
+
+
+def raw_transaction_type(source_system: str, row: pd.Series) -> str:
+    if source_system == "tiktok_tokopedia":
+        transaction_type = normalize_transaction_type(row.get("type"))
+        return clean_text(row.get("type")) or transaction_type
+    if source_system == "shopee":
+        return clean_text(row.get("alasan_penyesuaian")) or "shopee_income_adjustment"
+    if source_system == "lazada":
+        return clean_text(row.get("status_pelepasan_dana")) or "lazada_income_adjustment_candidate"
+    return "unspecified"
+
+
+def currency_code(source_system: str, row: pd.Series) -> str:
+    if source_system == "tiktok_tokopedia":
+        return clean_text(row.get("currency")) or "IDR"
+    return "IDR"
+
+
+def adjustment_occurred_at_text(source_system: str, row: pd.Series) -> str | None:
+    if source_system == "tiktok_tokopedia":
+        return clean_text(row.get("order_settled_time")) or clean_text(row.get("order_created_time"))
+    if source_system == "shopee":
+        return clean_text(row.get("tanggal_penyesuaian_dibuat")) or clean_text(row.get("tanggal_dana_dilepaskan"))
+    if source_system == "lazada":
+        return clean_text(row.get("tanggal_transaksi")) or clean_text(row.get("tanggal_dilepas"))
+    return None
 
 
 def build_adjustment_row(
@@ -185,23 +292,29 @@ def build_adjustment_row(
     alias: FeeAlias,
     raw_amount: Decimal,
 ) -> dict[str, Any] | None:
-    external_adjustment_id = clean_text(row.get("order_adjustment_id"))
+    external_adjustment_id = adjustment_external_id(
+        source_system=source_system,
+        loaded=loaded,
+        row_number=row_number,
+        row=row,
+        alias=alias,
+    )
     if not external_adjustment_id:
         return None
 
-    transaction_type = normalize_transaction_type(row.get("type"))
-    related_external_order_id = clean_text(row.get("related_order_id"))
-    raw_transaction_type = clean_text(row.get("type")) or transaction_type
+    transaction_type_value = raw_transaction_type(source_system, row)
+    related_order_id = related_external_order_id(source_system, row)
     signed_amount = apply_sign_rule(raw_amount, alias.sign_rule)
     confidence = sign_confidence(alias.sign_rule, alias.review_status)
+    review_label = "phase_4_review" if is_phase4_review_candidate(alias) else "phase_4"
     raw_record_id = make_raw_record_id(
         [
             source_system,
             source_table,
             store_name,
             external_adjustment_id,
-            related_external_order_id,
-            transaction_type,
+            related_order_id,
+            transaction_type_value,
             alias.fee_type_id,
             alias.raw_fee_name,
             loaded.source_path.name,
@@ -216,8 +329,8 @@ def build_adjustment_row(
         "store_name": store_name,
         "normalized_store_name": normalize_name(store_name),
         "external_adjustment_id": external_adjustment_id,
-        "related_external_order_id": related_external_order_id,
-        "raw_transaction_type": raw_transaction_type,
+        "related_external_order_id": related_order_id,
+        "raw_transaction_type": transaction_type_value,
         "fee_type_id": alias.fee_type_id,
         "raw_adjustment_name": alias.raw_fee_name,
         "raw_adjustment_amount": raw_amount,
@@ -226,13 +339,13 @@ def build_adjustment_row(
         "sign_rule": alias.sign_rule,
         "sign_confidence": confidence,
         "review_status": alias.review_status,
-        "currency_code": clean_text(row.get("currency")) or "IDR",
-        "adjustment_occurred_at_text": clean_text(row.get("order_settled_time"))
-        or clean_text(row.get("order_created_time")),
+        "currency_code": currency_code(source_system, row),
+        "adjustment_occurred_at_text": adjustment_occurred_at_text(source_system, row),
         "source_file": loaded.source_path.name,
         "source_sheet": loaded.sheet_name,
         "source_row_number": row_number,
         "raw_record_id": raw_record_id,
+        "phase4_label": review_label,
     }
 
 
@@ -256,19 +369,63 @@ def extract_frame_adjustment_rows(
         alias
         for alias in aliases
         if alias.source_table == loaded.table_name
-        and alias.fee_source_kind == "column_fee"
         and is_phase4_alias(alias)
     ]
     if not aliases_by_table:
         return rows, stats
+    row_fee_aliases = {
+        alias.raw_fee_name: alias
+        for alias in aliases_by_table
+        if alias.fee_source_kind == "row_fee_name"
+    }
+    column_fee_aliases = [
+        alias
+        for alias in aliases_by_table
+        if alias.fee_source_kind == "column_fee"
+    ]
 
     for index, row in loaded.dataframe.iterrows():
         row_number = int(index) + 1
-        if not is_phase4_income_row(source_system, row):
+        if not is_phase4_income_row(source_system, loaded, row):
             stats["skipped_out_of_scope_rows"] += 1
             continue
 
-        for alias in aliases_by_table:
+        if row_fee_aliases:
+            sample_alias = next(iter(row_fee_aliases.values()))
+            matched_alias = row_fee_aliases.get(row_fee_name(row, sample_alias))
+            if matched_alias is None:
+                stats["skipped_out_of_scope_rows"] += 1
+            else:
+                raw_amount = parse_decimal(row.get(matched_alias.amount_column))
+                if raw_amount is None:
+                    stats["skipped_missing_adjustment_values"] += 1
+                elif raw_amount == 0:
+                    stats["skipped_zero_adjustment_values"] += 1
+                elif (
+                    matched_alias.review_status == "needs_review"
+                    and not allow_review_adjustments
+                    and not is_phase4_review_candidate(matched_alias)
+                ):
+                    stats["skipped_review_adjustment_values"] += 1
+                elif matched_alias.sign_rule == "review_required" and not allow_review_adjustments:
+                    stats["skipped_review_adjustment_values"] += 1
+                else:
+                    adjustment_row = build_adjustment_row(
+                        source_system=source_system,
+                        source_table=loaded.table_name,
+                        store_name=store_name,
+                        loaded=loaded,
+                        row_number=row_number,
+                        row=row,
+                        alias=matched_alias,
+                        raw_amount=raw_amount,
+                    )
+                    if adjustment_row:
+                        rows.append(adjustment_row)
+                    else:
+                        stats["skipped_without_adjustment_id"] += 1
+
+        for alias in column_fee_aliases:
             if alias.amount_column not in loaded.dataframe.columns:
                 continue
 
@@ -279,7 +436,11 @@ def extract_frame_adjustment_rows(
             if raw_amount == 0:
                 stats["skipped_zero_adjustment_values"] += 1
                 continue
-            if alias.review_status == "needs_review" and not allow_review_adjustments:
+            if (
+                alias.review_status == "needs_review"
+                and not allow_review_adjustments
+                and not is_phase4_review_candidate(alias)
+            ):
                 stats["skipped_review_adjustment_values"] += 1
                 continue
             if alias.sign_rule == "review_required" and not allow_review_adjustments:

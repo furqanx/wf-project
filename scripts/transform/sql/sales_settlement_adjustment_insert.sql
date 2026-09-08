@@ -169,6 +169,10 @@ SELECT
             THEN adjustment_occurred_at_text::timestamp
         WHEN adjustment_occurred_at_text ~ '^[0-9]{{4}}/[0-9]{{2}}/[0-9]{{2}}'
             THEN adjustment_occurred_at_text::timestamp
+        WHEN adjustment_occurred_at_text ~ '^[0-9]{{2}} [A-Za-z]{{3}} [0-9]{{4}}$'
+            THEN to_timestamp(adjustment_occurred_at_text, 'DD Mon YYYY')
+        WHEN adjustment_occurred_at_text ~ '^[0-9]{{2}} [A-Za-z]{{3}} [0-9]{{4}} [0-9]{{2}}:[0-9]{{2}}'
+            THEN to_timestamp(adjustment_occurred_at_text, 'DD Mon YYYY HH24:MI')
         ELSE NULL
     END AS adjustment_occurred_at,
     source_file,
@@ -180,6 +184,7 @@ SELECT
         'Loaded by scripts/transform/sales_adjustment_phase_4.py',
         'source_table=' || source_table,
         'transaction_type=' || raw_transaction_type,
+        'phase4_label=' || phase4_label,
         'review_status=' || review_status
     ) AS notes
 FROM adjustment_rows
