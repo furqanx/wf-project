@@ -92,6 +92,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--database", default=None)
     parser.add_argument("--limit-files", type=int, default=None)
     parser.add_argument("--export-audit", default=None)
+    parser.add_argument("--export-unmapped-products", default=None)
+    parser.add_argument("--export-unmatched-items", default=None)
+    parser.add_argument("--export-duplicate-items", default=None)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--allow-unmapped",
@@ -132,7 +135,10 @@ def parse_datetime(value: Any) -> str | None:
     if text_value is None:
         return None
 
-    parsed = pd.to_datetime(text_value, errors="coerce", dayfirst=True)
+    if re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}", text_value):
+        parsed = pd.to_datetime(text_value, errors="coerce", dayfirst=False)
+    else:
+        parsed = pd.to_datetime(text_value, errors="coerce", dayfirst=True)
     if pd.isna(parsed):
         return None
     return parsed.isoformat()
@@ -553,12 +559,30 @@ def write_audit_csv(rows: list[dict], output_path: str | Path) -> Path:
     return path
 
 
+def write_query_csv(conn, sql: str, output_path: str | Path) -> Path:
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = conn.execute(text(sql))
+    rows = result.mappings().all()
+    columns = list(result.keys())
+
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return path
+
+
 def main() -> None:
     args = parse_args()
     ctx = TransformContext(staging_schema="pg_temp", target_schema=args.target_schema)
     engine = get_engine(args.database)
     audit_sql = ctx.render_sql("sales_return_audit.sql")
     insert_sql = ctx.render_sql("sales_return_insert.sql")
+    unmapped_products_sql = ctx.render_sql("sales_return_unmapped_products.sql")
+    unmatched_items_sql = ctx.render_sql("sales_return_unmatched_items.sql")
+    duplicate_items_sql = ctx.render_sql("sales_return_duplicate_items.sql")
 
     with engine.begin() as conn:
         configure_transaction_guardrails(conn, source_system=args.source_system)
@@ -576,6 +600,15 @@ def main() -> None:
         if args.export_audit:
             output_path = write_audit_csv(audit.rows, args.export_audit)
             logger.info("Audit export: %s", output_path)
+        if args.export_unmapped_products:
+            output_path = write_query_csv(conn, unmapped_products_sql, args.export_unmapped_products)
+            logger.info("Unmapped product export: %s", output_path)
+        if args.export_unmatched_items:
+            output_path = write_query_csv(conn, unmatched_items_sql, args.export_unmatched_items)
+            logger.info("Unmatched item export: %s", output_path)
+        if args.export_duplicate_items:
+            output_path = write_query_csv(conn, duplicate_items_sql, args.export_duplicate_items)
+            logger.info("Duplicate item export: %s", output_path)
 
         if not args.execute:
             logger.info("Dry-run only. Add --execute to insert into target facts.")
