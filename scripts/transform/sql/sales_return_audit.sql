@@ -143,6 +143,10 @@ item_matches AS (
                 fsoi.product_id = r.product_id
                 AND COALESCE(LOWER(fsoi.source_sku_code), '') = COALESCE(LOWER(r.source_sku_code), '')
             )
+            OR (
+                fsoi.product_sku_alias_id = r.product_sku_alias_id
+                AND COALESCE(LOWER(fsoi.source_sku_code), '') = COALESCE(LOWER(r.source_sku_code), '')
+            )
        )
 ),
 duplicate_return_grain AS (
