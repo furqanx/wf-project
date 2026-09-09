@@ -41,6 +41,32 @@ fee_summary AS (
       AND sales_order_id IS NOT NULL
     GROUP BY sales_order_id
 ),
+return_header_summary AS (
+    SELECT
+        sales_order_id,
+        COUNT(*) AS return_rows,
+        SUM(refund_amount) AS return_refund_amount,
+        SUM(return_shipping_amount) AS return_shipping_amount,
+        MIN(return_requested_at) AS first_return_requested_at,
+        MAX(return_completed_at) AS last_return_completed_at
+    FROM public.fact_sales_return
+    WHERE sales_channel_type = 'online'
+      AND sales_order_id IS NOT NULL
+    GROUP BY sales_order_id
+),
+return_item_summary AS (
+    SELECT
+        fsr.sales_order_id,
+        COUNT(*) AS return_item_rows,
+        SUM(fsri.return_qty) AS return_qty,
+        SUM(fsri.refund_item_amount) AS return_item_refund_amount
+    FROM public.fact_sales_return_item fsri
+    JOIN public.fact_sales_return fsr
+        ON fsr.sales_return_id = fsri.sales_return_id
+    WHERE fsr.sales_channel_type = 'online'
+      AND fsr.sales_order_id IS NOT NULL
+    GROUP BY fsr.sales_order_id
+),
 addon_summary AS (
     SELECT
         sales_order_id,
@@ -75,6 +101,14 @@ SELECT
     ss.last_settled_at,
     COALESCE(fs.fee_detail_rows, 0) AS fee_detail_rows,
     COALESCE(fs.signed_fee_amount, 0) AS signed_fee_amount,
+    COALESCE(rhs.return_rows, 0) AS return_rows,
+    COALESCE(ris.return_item_rows, 0) AS return_item_rows,
+    COALESCE(ris.return_qty, 0) AS return_qty,
+    COALESCE(rhs.return_refund_amount, 0) AS return_refund_amount,
+    COALESCE(ris.return_item_refund_amount, 0) AS return_item_refund_amount,
+    COALESCE(rhs.return_shipping_amount, 0) AS return_shipping_amount,
+    rhs.first_return_requested_at,
+    rhs.last_return_completed_at,
     COALESCE(asum.addon_rows, 0) AS addon_rows,
     COALESCE(asum.net_addon_amount, 0) AS net_addon_amount,
     CASE
@@ -98,10 +132,85 @@ LEFT JOIN settlement_summary ss
     ON ss.sales_order_id = fso.sales_order_id
 LEFT JOIN fee_summary fs
     ON fs.sales_order_id = fso.sales_order_id
+LEFT JOIN return_header_summary rhs
+    ON rhs.sales_order_id = fso.sales_order_id
+LEFT JOIN return_item_summary ris
+    ON ris.sales_order_id = fso.sales_order_id
 LEFT JOIN addon_summary asum
     ON asum.sales_order_id = fso.sales_order_id
 LEFT JOIN issue_flags inf
     ON inf.sales_order_id = fso.sales_order_id;
+
+CREATE OR REPLACE VIEW public.vw_sales_return_reconciliation AS
+WITH issue_flags AS (
+    SELECT
+        sales_return_id,
+        sales_return_item_id,
+        COUNT(*) FILTER (WHERE issue_status = 'open') AS open_issue_count,
+        COUNT(*) FILTER (WHERE issue_status = 'open' AND issue_severity = 'warning') AS warning_issue_count,
+        BOOL_OR(issue_type = 'phase_return_without_order' AND issue_status = 'open') AS has_open_return_without_order_issue,
+        BOOL_OR(issue_type = 'phase_return_item_without_order_item' AND issue_status = 'open') AS has_open_return_item_without_order_item_issue
+    FROM public.data_quality_issue
+    WHERE issue_domain = 'sales_money_flow'
+      AND source_table IN ('fact_sales_return', 'fact_sales_return_item')
+    GROUP BY sales_return_id, sales_return_item_id
+)
+SELECT
+    fsr.sales_return_id,
+    fsri.sales_return_item_id,
+    fsr.source_system,
+    fsr.sales_channel_type,
+    fsr.marketplace_id,
+    dm.marketplace_name,
+    fsr.store_id,
+    ds.store_name,
+    fsr.sales_order_id,
+    fsri.sales_order_item_id,
+    fsr.external_order_id,
+    fsr.external_return_id,
+    fsri.source_line_id,
+    fsri.source_sku_code,
+    fsri.source_product_name,
+    fsri.source_variation_name,
+    fsri.product_id,
+    fsri.product_sku_alias_id,
+    fsr.return_type,
+    fsr.return_status,
+    fsr.return_reason,
+    fsr.return_initiator,
+    fsr.return_requested_at,
+    fsr.return_completed_at,
+    fsri.return_qty,
+    fsr.refund_amount,
+    fsri.refund_item_amount,
+    fsr.return_shipping_amount,
+    fsr.currency_code,
+    CASE
+        WHEN fsr.sales_order_id IS NULL THEN 'missing_order_reference'
+        WHEN fsri.sales_return_item_id IS NOT NULL
+         AND fsri.sales_order_item_id IS NULL THEN 'missing_order_item_reference'
+        WHEN fsri.sales_return_item_id IS NOT NULL THEN 'matched_to_order_and_item'
+        ELSE 'matched_to_order_header_only'
+    END AS reconciliation_status,
+    COALESCE(inf_item.open_issue_count, inf_header.open_issue_count, 0) AS open_issue_count,
+    COALESCE(inf_item.warning_issue_count, inf_header.warning_issue_count, 0) AS warning_issue_count,
+    COALESCE(fsr.source_file, fsri.source_file) AS source_file,
+    COALESCE(fsr.source_sheet, fsri.source_sheet) AS source_sheet,
+    COALESCE(fsr.source_row_number, fsri.source_row_number) AS source_row_number,
+    COALESCE(fsr.raw_record_id, fsri.raw_record_id) AS raw_record_id,
+    fsr.notes
+FROM public.fact_sales_return fsr
+LEFT JOIN public.fact_sales_return_item fsri
+    ON fsri.sales_return_id = fsr.sales_return_id
+LEFT JOIN public.dim_marketplace dm
+    ON dm.marketplace_id = fsr.marketplace_id
+LEFT JOIN public.dim_store ds
+    ON ds.store_id = fsr.store_id
+LEFT JOIN issue_flags inf_header
+    ON inf_header.sales_return_id = fsr.sales_return_id
+   AND inf_header.sales_return_item_id IS NULL
+LEFT JOIN issue_flags inf_item
+    ON inf_item.sales_return_item_id = fsri.sales_return_item_id;
 
 CREATE OR REPLACE VIEW public.vw_sales_settlement_reconciliation AS
 WITH issue_flags AS (
@@ -345,6 +454,44 @@ adjustment_summary AS (
     WHERE sales_channel_type = 'online'
     GROUP BY source_system, marketplace_id, store_id, date_trunc('month', adjustment_occurred_at)::date
 ),
+return_summary AS (
+    SELECT
+        source_system,
+        marketplace_id,
+        store_id,
+        date_trunc('month', COALESCE(return_completed_at, return_requested_at, created_at))::date AS period_month,
+        COUNT(*) AS return_rows,
+        COUNT(sales_order_id) AS return_matched_order_rows,
+        SUM(refund_amount) AS return_refund_amount,
+        SUM(return_shipping_amount) AS return_shipping_amount
+    FROM public.fact_sales_return
+    WHERE sales_channel_type = 'online'
+    GROUP BY
+        source_system,
+        marketplace_id,
+        store_id,
+        date_trunc('month', COALESCE(return_completed_at, return_requested_at, created_at))::date
+),
+return_item_summary AS (
+    SELECT
+        fsr.source_system,
+        fsr.marketplace_id,
+        fsr.store_id,
+        date_trunc('month', COALESCE(fsr.return_completed_at, fsr.return_requested_at, fsr.created_at))::date AS period_month,
+        COUNT(*) AS return_item_rows,
+        COUNT(fsri.sales_order_item_id) AS return_item_matched_order_item_rows,
+        SUM(fsri.return_qty) AS return_qty,
+        SUM(fsri.refund_item_amount) AS return_item_refund_amount
+    FROM public.fact_sales_return_item fsri
+    JOIN public.fact_sales_return fsr
+        ON fsr.sales_return_id = fsri.sales_return_id
+    WHERE fsr.sales_channel_type = 'online'
+    GROUP BY
+        fsr.source_system,
+        fsr.marketplace_id,
+        fsr.store_id,
+        date_trunc('month', COALESCE(fsr.return_completed_at, fsr.return_requested_at, fsr.created_at))::date
+),
 balance_summary AS (
     SELECT
         source_system,
@@ -383,6 +530,10 @@ all_keys AS (
     UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM adjustment_summary
     UNION
+    SELECT source_system, marketplace_id, store_id, period_month FROM return_summary
+    UNION
+    SELECT source_system, marketplace_id, store_id, period_month FROM return_item_summary
+    UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM balance_summary
     UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM issue_summary
@@ -409,6 +560,14 @@ SELECT
     COALESCE(fs.signed_fee_amount, 0) AS signed_fee_amount,
     COALESCE(adjs.adjustment_rows, 0) AS adjustment_rows,
     COALESCE(adjs.signed_adjustment_amount, 0) AS signed_adjustment_amount,
+    COALESCE(rs.return_rows, 0) AS return_rows,
+    COALESCE(rs.return_matched_order_rows, 0) AS return_matched_order_rows,
+    COALESCE(ris.return_item_rows, 0) AS return_item_rows,
+    COALESCE(ris.return_item_matched_order_item_rows, 0) AS return_item_matched_order_item_rows,
+    COALESCE(ris.return_qty, 0) AS return_qty,
+    COALESCE(rs.return_refund_amount, 0) AS return_refund_amount,
+    COALESCE(ris.return_item_refund_amount, 0) AS return_item_refund_amount,
+    COALESCE(rs.return_shipping_amount, 0) AS return_shipping_amount,
     COALESCE(bs.balance_rows, 0) AS balance_rows,
     COALESCE(bs.balance_credit_rows, 0) AS balance_credit_rows,
     COALESCE(bs.balance_debit_rows, 0) AS balance_debit_rows,
@@ -443,6 +602,16 @@ LEFT JOIN adjustment_summary adjs
    AND adjs.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id
    AND adjs.store_id IS NOT DISTINCT FROM ak.store_id
    AND adjs.period_month IS NOT DISTINCT FROM ak.period_month
+LEFT JOIN return_summary rs
+    ON rs.source_system = ak.source_system
+   AND rs.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id
+   AND rs.store_id IS NOT DISTINCT FROM ak.store_id
+   AND rs.period_month IS NOT DISTINCT FROM ak.period_month
+LEFT JOIN return_item_summary ris
+    ON ris.source_system = ak.source_system
+   AND ris.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id
+   AND ris.store_id IS NOT DISTINCT FROM ak.store_id
+   AND ris.period_month IS NOT DISTINCT FROM ak.period_month
 LEFT JOIN balance_summary bs
     ON bs.source_system = ak.source_system
    AND bs.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id

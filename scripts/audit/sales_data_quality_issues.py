@@ -33,6 +33,8 @@ STATEMENT_TIMEOUT = "20min"
 ISSUE_TYPES = [
     "phase1_order_without_settlement",
     "phase2_settlement_without_order",
+    "phase_return_without_order",
+    "phase_return_item_without_order_item",
     "phase4_adjustment_without_settlement",
     "phase5_balance_order_id_without_order_match",
     "phase5_balance_order_id_without_settlement_match",
@@ -106,6 +108,8 @@ def current_issues_body_sql(target_schema: str) -> str:
             fss.sales_settlement_id,
             NULL::bigint AS sales_settlement_adjustment_id,
             NULL::bigint AS balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
             fss.external_order_id,
             fss.external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -156,6 +160,8 @@ def current_issues_body_sql(target_schema: str) -> str:
             fssa.sales_settlement_id,
             fssa.sales_settlement_adjustment_id,
             NULL::bigint AS balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
             fssa.related_external_order_id AS external_order_id,
             NULL::text AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -206,6 +212,8 @@ def current_issues_body_sql(target_schema: str) -> str:
             fbt.sales_settlement_id,
             NULL::bigint AS sales_settlement_adjustment_id,
             fbt.balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
             fbt.external_order_id,
             NULL::text AS external_order_item_id,
             fbt.external_transaction_id,
@@ -262,6 +270,8 @@ def current_issues_body_sql(target_schema: str) -> str:
             fbt.sales_settlement_id,
             NULL::bigint AS sales_settlement_adjustment_id,
             fbt.balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
             fbt.external_order_id,
             NULL::text AS external_order_item_id,
             fbt.external_transaction_id,
@@ -318,6 +328,8 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS sales_settlement_id,
             NULL::bigint AS sales_settlement_adjustment_id,
             NULL::bigint AS balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
             fso.external_order_id,
             NULL::text AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -347,6 +359,114 @@ def current_issues_body_sql(target_schema: str) -> str:
                 AND fss.store_id IS NOT DISTINCT FROM fso.store_id
                 AND fss.external_order_id = fso.external_order_id
           )
+
+        UNION ALL
+
+        SELECT
+            CONCAT_WS(
+                '|',
+                'sales_money_flow',
+                'phase_return_without_order',
+                fsr.source_system,
+                'fact_sales_return',
+                fsr.sales_return_id::text
+            ) AS issue_key,
+            'sales_money_flow'::text AS issue_domain,
+            'phase_return_without_order'::text AS issue_type,
+            'warning'::text AS issue_severity,
+            'open'::text AS issue_status,
+            fsr.source_system,
+            fsr.sales_channel_type,
+            'fact_sales_return'::text AS source_table,
+            'sales_return_id'::text AS source_pk_name,
+            fsr.sales_return_id::text AS source_pk_value,
+            fsr.marketplace_id,
+            fsr.store_id,
+            fsr.sales_order_id,
+            NULL::bigint AS sales_settlement_id,
+            NULL::bigint AS sales_settlement_adjustment_id,
+            NULL::bigint AS balance_transaction_id,
+            fsr.sales_return_id,
+            NULL::bigint AS sales_return_item_id,
+            fsr.external_order_id,
+            NULL::text AS external_order_item_id,
+            NULL::text AS external_transaction_id,
+            fsr.external_return_id AS external_adjustment_id,
+            COALESCE(fsr.refund_amount, fsr.return_shipping_amount) AS issue_amount,
+            fsr.currency_code,
+            COALESCE(fsr.return_completed_at, fsr.return_requested_at, fsr.created_at) AS issue_occurred_at,
+            'Return row exists, but it is not linked to a Phase 1 order.'::text AS issue_description,
+            'Keep return as source event; exclude from order-level return analysis until matching order is found.'::text AS recommended_treatment,
+            fsr.source_file,
+            fsr.source_sheet,
+            fsr.source_row_number,
+            fsr.raw_record_id,
+            jsonb_build_object(
+                'external_return_id', fsr.external_return_id,
+                'return_type', fsr.return_type,
+                'return_status', fsr.return_status,
+                'return_reason', fsr.return_reason
+            ) AS metadata
+        FROM {target_schema}.fact_sales_return fsr
+        WHERE fsr.sales_channel_type = 'online'
+          AND fsr.sales_order_id IS NULL
+          {source_filter_sql("fsr")}
+
+        UNION ALL
+
+        SELECT
+            CONCAT_WS(
+                '|',
+                'sales_money_flow',
+                'phase_return_item_without_order_item',
+                fsr.source_system,
+                'fact_sales_return_item',
+                fsri.sales_return_item_id::text
+            ) AS issue_key,
+            'sales_money_flow'::text AS issue_domain,
+            'phase_return_item_without_order_item'::text AS issue_type,
+            'info'::text AS issue_severity,
+            'open'::text AS issue_status,
+            fsr.source_system,
+            fsr.sales_channel_type,
+            'fact_sales_return_item'::text AS source_table,
+            'sales_return_item_id'::text AS source_pk_name,
+            fsri.sales_return_item_id::text AS source_pk_value,
+            fsr.marketplace_id,
+            fsr.store_id,
+            fsr.sales_order_id,
+            NULL::bigint AS sales_settlement_id,
+            NULL::bigint AS sales_settlement_adjustment_id,
+            NULL::bigint AS balance_transaction_id,
+            fsr.sales_return_id,
+            fsri.sales_return_item_id,
+            fsr.external_order_id,
+            fsri.source_line_id AS external_order_item_id,
+            NULL::text AS external_transaction_id,
+            fsr.external_return_id AS external_adjustment_id,
+            fsri.refund_item_amount AS issue_amount,
+            fsr.currency_code,
+            COALESCE(fsr.return_completed_at, fsr.return_requested_at, fsri.created_at) AS issue_occurred_at,
+            'Return item row exists, but it is not linked to a Phase 1 order item.'::text AS issue_description,
+            'Keep return item as source event; review only if SKU/item-level return analysis requires exact order-item attribution.'::text AS recommended_treatment,
+            fsri.source_file,
+            fsri.source_sheet,
+            fsri.source_row_number,
+            fsri.raw_record_id,
+            jsonb_build_object(
+                'external_return_id', fsr.external_return_id,
+                'return_type', fsr.return_type,
+                'return_status', fsr.return_status,
+                'source_sku_code', fsri.source_sku_code,
+                'source_product_name', fsri.source_product_name,
+                'return_qty', fsri.return_qty
+            ) AS metadata
+        FROM {target_schema}.fact_sales_return_item fsri
+        JOIN {target_schema}.fact_sales_return fsr
+            ON fsr.sales_return_id = fsri.sales_return_id
+        WHERE fsr.sales_channel_type = 'online'
+          AND fsri.sales_order_item_id IS NULL
+          {source_filter_sql("fsr")}
     """
 
 
@@ -404,6 +524,8 @@ def upsert_sql(target_schema: str) -> str:
         sales_settlement_id,
         sales_settlement_adjustment_id,
         balance_transaction_id,
+        sales_return_id,
+        sales_return_item_id,
         external_order_id,
         external_order_item_id,
         external_transaction_id,
@@ -443,6 +565,8 @@ def upsert_sql(target_schema: str) -> str:
         sales_settlement_id,
         sales_settlement_adjustment_id,
         balance_transaction_id,
+        sales_return_id,
+        sales_return_item_id,
         external_order_id,
         external_order_item_id,
         external_transaction_id,
@@ -477,6 +601,8 @@ def upsert_sql(target_schema: str) -> str:
         sales_settlement_id = EXCLUDED.sales_settlement_id,
         sales_settlement_adjustment_id = EXCLUDED.sales_settlement_adjustment_id,
         balance_transaction_id = EXCLUDED.balance_transaction_id,
+        sales_return_id = EXCLUDED.sales_return_id,
+        sales_return_item_id = EXCLUDED.sales_return_item_id,
         external_order_id = EXCLUDED.external_order_id,
         external_order_item_id = EXCLUDED.external_order_item_id,
         external_transaction_id = EXCLUDED.external_transaction_id,
