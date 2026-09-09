@@ -32,7 +32,9 @@ STATEMENT_TIMEOUT = "20min"
 
 ISSUE_TYPES = [
     "phase1_order_without_settlement",
+    "phase1_order_without_fulfillment",
     "phase2_settlement_without_order",
+    "phase_fulfillment_without_order",
     "phase_return_without_order",
     "phase_return_item_without_order_item",
     "phase4_adjustment_without_settlement",
@@ -110,6 +112,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS balance_transaction_id,
             NULL::bigint AS sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fss.external_order_id,
             fss.external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -162,6 +165,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS balance_transaction_id,
             NULL::bigint AS sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fssa.related_external_order_id AS external_order_id,
             NULL::text AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -214,6 +218,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             fbt.balance_transaction_id,
             NULL::bigint AS sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fbt.external_order_id,
             NULL::text AS external_order_item_id,
             fbt.external_transaction_id,
@@ -272,6 +277,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             fbt.balance_transaction_id,
             NULL::bigint AS sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fbt.external_order_id,
             NULL::text AS external_order_item_id,
             fbt.external_transaction_id,
@@ -330,6 +336,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS balance_transaction_id,
             NULL::bigint AS sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fso.external_order_id,
             NULL::text AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -366,6 +373,119 @@ def current_issues_body_sql(target_schema: str) -> str:
             CONCAT_WS(
                 '|',
                 'sales_money_flow',
+                'phase1_order_without_fulfillment',
+                fso.source_system,
+                'fact_sales_order',
+                fso.sales_order_id::text
+            ) AS issue_key,
+            'sales_money_flow'::text AS issue_domain,
+            'phase1_order_without_fulfillment'::text AS issue_type,
+            'info'::text AS issue_severity,
+            'open'::text AS issue_status,
+            fso.source_system,
+            fso.sales_channel_type,
+            'fact_sales_order'::text AS source_table,
+            'sales_order_id'::text AS source_pk_name,
+            fso.sales_order_id::text AS source_pk_value,
+            fso.marketplace_id,
+            fso.store_id,
+            fso.sales_order_id,
+            NULL::bigint AS sales_settlement_id,
+            NULL::bigint AS sales_settlement_adjustment_id,
+            NULL::bigint AS balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
+            fso.external_order_id,
+            NULL::text AS external_order_item_id,
+            NULL::text AS external_transaction_id,
+            NULL::text AS external_adjustment_id,
+            fso.net_order_amount AS issue_amount,
+            fso.currency_code,
+            COALESCE(fso.order_datetime, fso.order_date::timestamptz) AS issue_occurred_at,
+            'Phase 1 order exists, but no fulfillment/logistics record was found.'::text AS issue_description,
+            'Keep order as valid sales order; review fulfillment source if shipment tracking or SLA analysis is required.'::text AS recommended_treatment,
+            fso.source_file,
+            fso.source_sheet,
+            fso.source_row_number,
+            fso.raw_record_id,
+            jsonb_build_object(
+                'order_date', fso.order_date,
+                'order_status', fso.order_status,
+                'payment_status', fso.payment_status
+            ) AS metadata
+        FROM {target_schema}.fact_sales_order fso
+        WHERE fso.sales_channel_type = 'online'
+          {source_filter_sql("fso")}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM {target_schema}.fact_sales_fulfillment fsf
+              WHERE fsf.sales_channel_type = 'online'
+                AND fsf.source_system = fso.source_system
+                AND fsf.store_id IS NOT DISTINCT FROM fso.store_id
+                AND fsf.external_order_id = fso.external_order_id
+          )
+
+        UNION ALL
+
+        SELECT
+            CONCAT_WS(
+                '|',
+                'sales_money_flow',
+                'phase_fulfillment_without_order',
+                fsf.source_system,
+                'fact_sales_fulfillment',
+                fsf.sales_fulfillment_id::text
+            ) AS issue_key,
+            'sales_money_flow'::text AS issue_domain,
+            'phase_fulfillment_without_order'::text AS issue_type,
+            'warning'::text AS issue_severity,
+            'open'::text AS issue_status,
+            fsf.source_system,
+            fsf.sales_channel_type,
+            'fact_sales_fulfillment'::text AS source_table,
+            'sales_fulfillment_id'::text AS source_pk_name,
+            fsf.sales_fulfillment_id::text AS source_pk_value,
+            fsf.marketplace_id,
+            fsf.store_id,
+            fsf.sales_order_id,
+            NULL::bigint AS sales_settlement_id,
+            NULL::bigint AS sales_settlement_adjustment_id,
+            NULL::bigint AS balance_transaction_id,
+            NULL::bigint AS sales_return_id,
+            NULL::bigint AS sales_return_item_id,
+            fsf.sales_fulfillment_id,
+            fsf.external_order_id,
+            NULL::text AS external_order_item_id,
+            NULL::text AS external_transaction_id,
+            NULL::text AS external_adjustment_id,
+            fsf.shipping_fee_amount AS issue_amount,
+            fsf.currency_code,
+            COALESCE(fsf.delivered_at, fsf.shipped_at, fsf.paid_at, fsf.order_created_at) AS issue_occurred_at,
+            'Fulfillment/logistics row exists, but it is not linked to a Phase 1 order.'::text AS issue_description,
+            'Keep fulfillment as source logistics event; exclude from order-level SLA analysis until matching order is found.'::text AS recommended_treatment,
+            fsf.source_file,
+            fsf.source_sheet,
+            fsf.source_row_number,
+            fsf.raw_record_id,
+            jsonb_build_object(
+                'external_fulfillment_id', fsf.external_fulfillment_id,
+                'external_package_id', fsf.external_package_id,
+                'tracking_number', fsf.tracking_number,
+                'fulfillment_status', fsf.fulfillment_status,
+                'logistics_status', fsf.logistics_status
+            ) AS metadata
+        FROM {target_schema}.fact_sales_fulfillment fsf
+        WHERE fsf.sales_channel_type = 'online'
+          AND fsf.sales_order_id IS NULL
+          {source_filter_sql("fsf")}
+
+        UNION ALL
+
+        SELECT
+            CONCAT_WS(
+                '|',
+                'sales_money_flow',
                 'phase_return_without_order',
                 fsr.source_system,
                 'fact_sales_return',
@@ -388,6 +508,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS balance_transaction_id,
             fsr.sales_return_id,
             NULL::bigint AS sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fsr.external_order_id,
             NULL::text AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -440,6 +561,7 @@ def current_issues_body_sql(target_schema: str) -> str:
             NULL::bigint AS balance_transaction_id,
             fsr.sales_return_id,
             fsri.sales_return_item_id,
+            NULL::bigint AS sales_fulfillment_id,
             fsr.external_order_id,
             fsri.source_line_id AS external_order_item_id,
             NULL::text AS external_transaction_id,
@@ -526,6 +648,7 @@ def upsert_sql(target_schema: str) -> str:
         balance_transaction_id,
         sales_return_id,
         sales_return_item_id,
+        sales_fulfillment_id,
         external_order_id,
         external_order_item_id,
         external_transaction_id,
@@ -567,6 +690,7 @@ def upsert_sql(target_schema: str) -> str:
         balance_transaction_id,
         sales_return_id,
         sales_return_item_id,
+        sales_fulfillment_id,
         external_order_id,
         external_order_item_id,
         external_transaction_id,
@@ -603,6 +727,7 @@ def upsert_sql(target_schema: str) -> str:
         balance_transaction_id = EXCLUDED.balance_transaction_id,
         sales_return_id = EXCLUDED.sales_return_id,
         sales_return_item_id = EXCLUDED.sales_return_item_id,
+        sales_fulfillment_id = EXCLUDED.sales_fulfillment_id,
         external_order_id = EXCLUDED.external_order_id,
         external_order_item_id = EXCLUDED.external_order_item_id,
         external_transaction_id = EXCLUDED.external_transaction_id,

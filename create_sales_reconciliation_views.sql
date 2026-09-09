@@ -10,6 +10,7 @@ BEGIN;
 DROP VIEW IF EXISTS public.vw_sales_money_flow_summary;
 DROP VIEW IF EXISTS public.vw_sales_balance_reconciliation;
 DROP VIEW IF EXISTS public.vw_sales_settlement_reconciliation;
+DROP VIEW IF EXISTS public.vw_sales_fulfillment_reconciliation;
 DROP VIEW IF EXISTS public.vw_sales_return_reconciliation;
 DROP VIEW IF EXISTS public.vw_sales_order_reconciliation;
 
@@ -18,6 +19,7 @@ WITH issue_flags AS (
     SELECT
         sales_order_id,
         BOOL_OR(issue_type = 'phase1_order_without_settlement' AND issue_status = 'open') AS has_open_order_without_settlement_issue,
+        BOOL_OR(issue_type = 'phase1_order_without_fulfillment' AND issue_status = 'open') AS has_open_order_without_fulfillment_issue,
         COUNT(*) FILTER (WHERE issue_status = 'open') AS open_issue_count,
         COUNT(*) FILTER (WHERE issue_status = 'open' AND issue_severity = 'warning') AS warning_issue_count
     FROM public.data_quality_issue
@@ -43,6 +45,20 @@ fee_summary AS (
         COUNT(*) AS fee_detail_rows,
         SUM(signed_fee_amount) AS signed_fee_amount
     FROM public.fact_sales_settlement_fee_detail
+    WHERE sales_channel_type = 'online'
+      AND sales_order_id IS NOT NULL
+    GROUP BY sales_order_id
+),
+fulfillment_summary AS (
+    SELECT
+        sales_order_id,
+        COUNT(*) AS fulfillment_rows,
+        COUNT(*) FILTER (WHERE tracking_number IS NOT NULL) AS fulfillment_tracking_rows,
+        COUNT(*) FILTER (WHERE delivered_at IS NOT NULL) AS fulfillment_delivered_rows,
+        MIN(ready_to_ship_at) AS first_ready_to_ship_at,
+        MIN(shipped_at) AS first_shipped_at,
+        MAX(delivered_at) AS last_delivered_at
+    FROM public.fact_sales_fulfillment
     WHERE sales_channel_type = 'online'
       AND sales_order_id IS NOT NULL
     GROUP BY sales_order_id
@@ -107,6 +123,12 @@ SELECT
     ss.last_settled_at,
     COALESCE(fs.fee_detail_rows, 0) AS fee_detail_rows,
     COALESCE(fs.signed_fee_amount, 0) AS signed_fee_amount,
+    COALESCE(fuls.fulfillment_rows, 0) AS fulfillment_rows,
+    COALESCE(fuls.fulfillment_tracking_rows, 0) AS fulfillment_tracking_rows,
+    COALESCE(fuls.fulfillment_delivered_rows, 0) AS fulfillment_delivered_rows,
+    fuls.first_ready_to_ship_at,
+    fuls.first_shipped_at,
+    fuls.last_delivered_at,
     COALESCE(rhs.return_rows, 0) AS return_rows,
     COALESCE(ris.return_item_rows, 0) AS return_item_rows,
     COALESCE(ris.return_qty, 0) AS return_qty,
@@ -122,6 +144,11 @@ SELECT
         WHEN ss.sales_order_id IS NOT NULL THEN 'matched_to_settlement'
         ELSE 'not_evaluated'
     END AS reconciliation_status,
+    CASE
+        WHEN COALESCE(inf.has_open_order_without_fulfillment_issue, false) THEN 'no_fulfillment_found'
+        WHEN fuls.sales_order_id IS NOT NULL THEN 'matched_to_fulfillment'
+        ELSE 'not_evaluated'
+    END AS fulfillment_reconciliation_status,
     COALESCE(inf.open_issue_count, 0) AS open_issue_count,
     COALESCE(inf.warning_issue_count, 0) AS warning_issue_count,
     fso.source_file,
@@ -138,6 +165,8 @@ LEFT JOIN settlement_summary ss
     ON ss.sales_order_id = fso.sales_order_id
 LEFT JOIN fee_summary fs
     ON fs.sales_order_id = fso.sales_order_id
+LEFT JOIN fulfillment_summary fuls
+    ON fuls.sales_order_id = fso.sales_order_id
 LEFT JOIN return_header_summary rhs
     ON rhs.sales_order_id = fso.sales_order_id
 LEFT JOIN return_item_summary ris
@@ -217,6 +246,90 @@ LEFT JOIN issue_flags inf_header
    AND inf_header.sales_return_item_id IS NULL
 LEFT JOIN issue_flags inf_item
     ON inf_item.sales_return_item_id = fsri.sales_return_item_id;
+
+CREATE OR REPLACE VIEW public.vw_sales_fulfillment_reconciliation AS
+WITH issue_flags AS (
+    SELECT
+        sales_fulfillment_id,
+        BOOL_OR(issue_type = 'phase_fulfillment_without_order' AND issue_status = 'open') AS has_open_fulfillment_without_order_issue,
+        COUNT(*) FILTER (WHERE issue_status = 'open') AS open_issue_count,
+        COUNT(*) FILTER (WHERE issue_status = 'open' AND issue_severity = 'warning') AS warning_issue_count
+    FROM public.data_quality_issue
+    WHERE issue_domain = 'sales_money_flow'
+      AND source_table = 'fact_sales_fulfillment'
+    GROUP BY sales_fulfillment_id
+)
+SELECT
+    fsf.sales_fulfillment_id,
+    fsf.source_system,
+    fsf.sales_channel_type,
+    fsf.marketplace_id,
+    dm.marketplace_name,
+    fsf.store_id,
+    ds.store_name,
+    fsf.sales_order_id,
+    fsf.external_order_id,
+    fsf.external_order_group_id,
+    fsf.external_fulfillment_id,
+    fsf.external_package_id,
+    fsf.tracking_number,
+    fsf.tracking_url,
+    fsf.warehouse_id,
+    fsf.source_warehouse_name,
+    fsf.shipping_service_id,
+    fsf.source_shipping_provider,
+    fsf.source_shipping_service,
+    fsf.source_shipping_service_level,
+    fsf.fulfillment_status,
+    fsf.logistics_status,
+    fsf.handover_type,
+    fsf.is_dropship,
+    fsf.order_created_at,
+    fsf.paid_at,
+    fsf.ready_to_ship_at,
+    fsf.target_shipped_at,
+    fsf.pickup_at,
+    fsf.handover_at,
+    fsf.shipped_at,
+    fsf.delivered_at,
+    fsf.cancelled_at,
+    fsf.returned_at,
+    fsf.weight_kg,
+    fsf.distance_fee_amount,
+    fsf.shipping_fee_amount,
+    fsf.currency_code,
+    fsf.destination_location_id,
+    fsf.destination_city,
+    fsf.destination_province,
+    fsf.destination_postal_code,
+    fsf.destination_country,
+    CASE
+        WHEN COALESCE(inf.has_open_fulfillment_without_order_issue, false) THEN 'missing_order_reference'
+        WHEN fsf.sales_order_id IS NOT NULL THEN 'matched_to_order'
+        ELSE 'not_evaluated'
+    END AS reconciliation_status,
+    CASE
+        WHEN fsf.delivered_at IS NOT NULL THEN 'delivered'
+        WHEN fsf.shipped_at IS NOT NULL THEN 'shipped'
+        WHEN fsf.ready_to_ship_at IS NOT NULL THEN 'ready_to_ship'
+        WHEN fsf.paid_at IS NOT NULL THEN 'paid'
+        WHEN fsf.cancelled_at IS NOT NULL THEN 'cancelled'
+        ELSE 'unknown'
+    END AS fulfillment_lifecycle_status,
+    COALESCE(inf.open_issue_count, 0) AS open_issue_count,
+    COALESCE(inf.warning_issue_count, 0) AS warning_issue_count,
+    fsf.source_file,
+    fsf.source_sheet,
+    fsf.source_row_number,
+    fsf.raw_record_id,
+    fsf.notes
+FROM public.fact_sales_fulfillment fsf
+LEFT JOIN public.dim_marketplace dm
+    ON dm.marketplace_id = fsf.marketplace_id
+LEFT JOIN public.dim_store ds
+    ON ds.store_id = fsf.store_id
+LEFT JOIN issue_flags inf
+    ON inf.sales_fulfillment_id = fsf.sales_fulfillment_id;
 
 CREATE OR REPLACE VIEW public.vw_sales_settlement_reconciliation AS
 WITH issue_flags AS (
@@ -498,6 +611,27 @@ return_item_summary AS (
         fsr.store_id,
         date_trunc('month', COALESCE(fsr.return_completed_at, fsr.return_requested_at, fsr.created_at))::date
 ),
+fulfillment_summary AS (
+    SELECT
+        source_system,
+        marketplace_id,
+        store_id,
+        date_trunc('month', COALESCE(paid_at, order_created_at, ready_to_ship_at, shipped_at, delivered_at, created_at))::date AS period_month,
+        COUNT(*) AS fulfillment_rows,
+        COUNT(sales_order_id) AS fulfillment_matched_order_rows,
+        COUNT(*) FILTER (WHERE tracking_number IS NOT NULL) AS fulfillment_tracking_rows,
+        COUNT(*) FILTER (WHERE delivered_at IS NOT NULL) AS fulfillment_delivered_rows,
+        SUM(weight_kg) AS fulfillment_weight_kg,
+        SUM(distance_fee_amount) AS fulfillment_distance_fee_amount,
+        SUM(shipping_fee_amount) AS fulfillment_shipping_fee_amount
+    FROM public.fact_sales_fulfillment
+    WHERE sales_channel_type = 'online'
+    GROUP BY
+        source_system,
+        marketplace_id,
+        store_id,
+        date_trunc('month', COALESCE(paid_at, order_created_at, ready_to_ship_at, shipped_at, delivered_at, created_at))::date
+),
 balance_summary AS (
     SELECT
         source_system,
@@ -540,6 +674,8 @@ all_keys AS (
     UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM return_item_summary
     UNION
+    SELECT source_system, marketplace_id, store_id, period_month FROM fulfillment_summary
+    UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM balance_summary
     UNION
     SELECT source_system, marketplace_id, store_id, period_month FROM issue_summary
@@ -574,6 +710,13 @@ SELECT
     COALESCE(rs.return_refund_amount, 0) AS return_refund_amount,
     COALESCE(ris.return_item_refund_amount, 0) AS return_item_refund_amount,
     COALESCE(rs.return_shipping_amount, 0) AS return_shipping_amount,
+    COALESCE(fuls.fulfillment_rows, 0) AS fulfillment_rows,
+    COALESCE(fuls.fulfillment_matched_order_rows, 0) AS fulfillment_matched_order_rows,
+    COALESCE(fuls.fulfillment_tracking_rows, 0) AS fulfillment_tracking_rows,
+    COALESCE(fuls.fulfillment_delivered_rows, 0) AS fulfillment_delivered_rows,
+    COALESCE(fuls.fulfillment_weight_kg, 0) AS fulfillment_weight_kg,
+    COALESCE(fuls.fulfillment_distance_fee_amount, 0) AS fulfillment_distance_fee_amount,
+    COALESCE(fuls.fulfillment_shipping_fee_amount, 0) AS fulfillment_shipping_fee_amount,
     COALESCE(bs.balance_rows, 0) AS balance_rows,
     COALESCE(bs.balance_credit_rows, 0) AS balance_credit_rows,
     COALESCE(bs.balance_debit_rows, 0) AS balance_debit_rows,
@@ -618,6 +761,11 @@ LEFT JOIN return_item_summary ris
    AND ris.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id
    AND ris.store_id IS NOT DISTINCT FROM ak.store_id
    AND ris.period_month IS NOT DISTINCT FROM ak.period_month
+LEFT JOIN fulfillment_summary fuls
+    ON fuls.source_system = ak.source_system
+   AND fuls.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id
+   AND fuls.store_id IS NOT DISTINCT FROM ak.store_id
+   AND fuls.period_month IS NOT DISTINCT FROM ak.period_month
 LEFT JOIN balance_summary bs
     ON bs.source_system = ak.source_system
    AND bs.marketplace_id IS NOT DISTINCT FROM ak.marketplace_id

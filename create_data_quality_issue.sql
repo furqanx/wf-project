@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS public.data_quality_issue (
     balance_transaction_id bigint,
     sales_return_id bigint,
     sales_return_item_id bigint,
+    sales_fulfillment_id bigint,
 
     external_order_id text,
     external_order_item_id text,
@@ -80,6 +81,9 @@ ADD COLUMN IF NOT EXISTS sales_return_id bigint;
 ALTER TABLE public.data_quality_issue
 ADD COLUMN IF NOT EXISTS sales_return_item_id bigint;
 
+ALTER TABLE public.data_quality_issue
+ADD COLUMN IF NOT EXISTS sales_fulfillment_id bigint;
+
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_type_status
 ON public.data_quality_issue (issue_type, issue_status);
 
@@ -100,6 +104,9 @@ ON public.data_quality_issue (source_system, external_order_id);
 
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_return
 ON public.data_quality_issue (sales_return_id, sales_return_item_id);
+
+CREATE INDEX IF NOT EXISTS idx_data_quality_issue_fulfillment
+ON public.data_quality_issue (sales_fulfillment_id);
 
 CREATE INDEX IF NOT EXISTS idx_data_quality_issue_store
 ON public.data_quality_issue (marketplace_id, store_id);
