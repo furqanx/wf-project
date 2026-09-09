@@ -7,6 +7,12 @@
 
 BEGIN;
 
+DROP VIEW IF EXISTS public.vw_sales_money_flow_summary;
+DROP VIEW IF EXISTS public.vw_sales_balance_reconciliation;
+DROP VIEW IF EXISTS public.vw_sales_settlement_reconciliation;
+DROP VIEW IF EXISTS public.vw_sales_return_reconciliation;
+DROP VIEW IF EXISTS public.vw_sales_order_reconciliation;
+
 CREATE OR REPLACE VIEW public.vw_sales_order_reconciliation AS
 WITH issue_flags AS (
     SELECT
