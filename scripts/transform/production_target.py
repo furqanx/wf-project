@@ -57,36 +57,45 @@ def build_legacy_product_mapping(production_source_csv: str | Path) -> pd.DataFr
     # The legacy target files carry old product_id values but not source SKU for
     # daily targets. This map is reconstructed from known legacy production IDs.
     legacy_map = {
-        "1": "8997224980831",
-        "6": "P5-8997224980831N",
-        "8": "8997224980824",
-        "13": "8997224980848",
-        "16": "8997224980855",
-        "19": "8997224980862",
-        "22": "8997224980879",
-        "25": "8997224980886",
-        "28": "8997224980893",
-        "31": "8997224980909",
-        "34": "P5-8997224980909N",
-        "36": "8997224981104",
-        "39": "8997224981111",
-        "40": "8997224981135",
-        "43": "8997224980978",
-        "44": "8997224980985",
-        "45": "8997224980992",
-        "46": "8997224981128",
-        "47": "8997224981005",
+        "1": ("8997224980831", "BERAS DIABET 1 KG"),
+        "6": ("P5-8997224980831N", "BERAS DIABET 5 KG"),
+        "7": ("P25-8997224980831", "BERAS DIABET 25 KG"),
+        "8": ("8997224980824", "BERAS DIET 1 KG"),
+        "11": ("P5-8997224980824N", "BERAS DIET 5 KG"),
+        "12": ("", "BERAS DIET 25 KG"),
+        "13": ("8997224980848", "BERAS OBIRICE 1 KG"),
+        "16": ("8997224980855", "BERAS MERAH 1 KG"),
+        "19": ("8997224980862", "BERAS COKLAT 1 KG"),
+        "22": ("8997224980879", "BERAS HITAM 1 KG"),
+        "25": ("8997224980886", "BERAS MENTHIK SUSU 1 KG"),
+        "28": ("8997224980893", "BERAS MENTHIK WANGI 1 KG"),
+        "31": ("8997224980909", "BERAS AMAZINC 1 KG"),
+        "34": ("P5-8997224980909N", "BERAS AMAZINC 5 KG"),
+        "35": ("", "BERAS AMAZINC 25 KG"),
+        "36": ("8997224981104", "BERAS PORANG 1 KG"),
+        "39": ("8997224981111", "BERAS PORANG 240 GR"),
+        "40": ("8997224981135", "BERAS PORANG 40 GR"),
+        "43": ("B9-8997224981135", "BERAS PORANG 40 GR 9 PCS"),
+        "44": ("B10-8997224981135", "BERAS PORANG 40 GR 10 PCS"),
+        "45": ("B11-8997224981135", "BERAS PORANG 40 GR 11 PCS"),
+        "46": ("8997224981128", "KECAP SORGHUM 140 ML"),
+        "47": ("8997224980978", "KECAP MANIS ORGANIK 140 ML"),
+        "48": ("8997224980985", "KALDU SAPI PREMIUM 50 GR"),
+        "49": ("8997224980992", "KALDU AYAM PREMIUM 50 GR"),
+        "50": ("8997224981005", "KALDU JAMUR PREMIUM 50 GR"),
+        "51": ("P5-8997224980848N", "BERAS OBIRICE 5 KG"),
+        "53": ("P5-8997224980855N", "BERAS MERAH 5 KG"),
     }
     map_rows = []
-    for source_product_id, source_sku_code in legacy_map.items():
+    for source_product_id, (source_sku_code, fallback_product_label) in legacy_map.items():
         candidate = rows[rows["source_sku_code"].str.lower().eq(source_sku_code.lower())]
         if candidate.empty:
             parsed_barcode = extract_barcode(source_sku_code)
-            source_product_label = ""
+            source_product_label = fallback_product_label
         else:
             first = candidate.iloc[0]
             parsed_barcode = str(first["parsed_barcode"])
-            source_product_label = str(first["source_product_label"])
+            source_product_label = str(first["source_product_label"]) or fallback_product_label
         map_rows.append(
             {
                 "source_product_id": source_product_id,
