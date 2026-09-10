@@ -304,6 +304,10 @@ UNION ALL
 SELECT 'production_output_source_rows', COUNT(*)::bigint, 'Rows whose source_record_type is Produksi Harian.'
 FROM resolved_rows
 UNION ALL
+SELECT 'production_output_insert_candidate_rows', COUNT(*)::bigint, 'Produksi Harian rows with quantity > 0.'
+FROM resolved_rows
+WHERE quantity_produced > 0
+UNION ALL
 SELECT 'skipped_internal_return_rows', COUNT(*)::bigint, 'Rows in same source file that represent internal returns, not production output.'
 FROM pg_temp.production_output_source
 WHERE NULLIF(TRIM(source_record_type), '') IS NOT NULL
@@ -312,6 +316,7 @@ UNION ALL
 SELECT 'unmapped_product_rows', COUNT(*)::bigint, 'Production rows that do not resolve to dim_product/product_sku_alias.'
 FROM resolved_rows
 WHERE product_id IS NULL
+  AND COALESCE(quantity_produced, 0) <> 0
 UNION ALL
 SELECT 'invalid_date_rows', COUNT(*)::bigint, 'Production rows whose date could not be parsed.'
 FROM resolved_rows
@@ -387,6 +392,7 @@ FROM resolved_rows
 WHERE product_id IS NOT NULL
   AND production_date IS NOT NULL
   AND quantity_produced IS NOT NULL
+  AND quantity_produced > 0
 ON CONFLICT (source_system, raw_record_id) DO UPDATE SET
     source_record_type = EXCLUDED.source_record_type,
     production_date = EXCLUDED.production_date,
@@ -423,6 +429,7 @@ SELECT
     MAX(source_row_number) AS last_source_row_number
 FROM resolved_rows
 WHERE product_id IS NULL
+  AND COALESCE(quantity_produced, 0) <> 0
 GROUP BY source_sku_code, parsed_barcode, source_product_label, source_product_name
 ORDER BY row_count DESC, source_product_name;
 """
