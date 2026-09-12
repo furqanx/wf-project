@@ -46,6 +46,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--max-pages", type=int, default=None)
+    parser.add_argument(
+        "--receipt-offset",
+        type=int,
+        default=0,
+        help="Skip the first N receipt list rows before fetching details.",
+    )
     parser.add_argument("--limit-receipts", type=int, default=None)
     parser.add_argument(
         "--output-dir",
@@ -270,7 +276,9 @@ def main() -> None:
         max_pages=args.max_pages,
     )
     if args.limit_receipts is not None:
-        receipt_list = receipt_list[: args.limit_receipts]
+        receipt_list = receipt_list[args.receipt_offset : args.receipt_offset + args.limit_receipts]
+    elif args.receipt_offset:
+        receipt_list = receipt_list[args.receipt_offset :]
     logger.info("Receipt list rows selected: %s", len(receipt_list))
 
     receipt_rows: list[dict[str, Any]] = []
