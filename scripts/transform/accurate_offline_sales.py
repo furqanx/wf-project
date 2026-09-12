@@ -545,7 +545,7 @@ def insert_item_sql(ctx: TransformContext) -> str:
     return (
         source_item_cte(ctx)
         + f"""
-, item_rows AS (
+, insert_item_rows AS (
     SELECT DISTINCT ON (
         fso.sales_order_id,
         COALESCE(i.invoice_item_id, ''),
@@ -625,7 +625,7 @@ SELECT
     source_file,
     raw_record_id,
     'Loaded by scripts/transform/accurate_offline_sales.py'
-FROM item_rows
+FROM insert_item_rows
 ON CONFLICT DO NOTHING;
 """
     )
