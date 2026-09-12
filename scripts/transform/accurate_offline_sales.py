@@ -164,9 +164,7 @@ def run_accurate_offline_sales_transform(
             item_rows=item_result.rowcount,
         )
     finally:
-        conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_receipt"))
-        conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_invoice"))
-        conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_invoice_item"))
+        pass
 
 
 def write_query_csv(conn: Connection, sql: str, output_path: str | Path) -> Path:
@@ -437,7 +435,9 @@ SELECT 'duplicate_item_extra_rows', COALESCE(SUM(row_count - 1), 0)::bigint, 'Ex
 FROM duplicate_item
 UNION ALL
 SELECT 'existing_target_order_rows', COUNT(*)::bigint, 'Existing fact_sales_order rows for Accurate offline source.'
-FROM {ctx.target_schema}.fact_sales_order
+FROM """
+        + ctx.target_schema
+        + """.fact_sales_order
 WHERE source_system = 'accurate'
   AND sales_channel_type = 'offline';
 """
