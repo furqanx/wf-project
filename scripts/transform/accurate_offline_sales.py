@@ -44,6 +44,10 @@ def create_temp_tables(
     invoice_df: pd.DataFrame,
     item_df: pd.DataFrame,
 ) -> None:
+    conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_receipt"))
+    conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_invoice"))
+    conn.execute(text("DROP TABLE IF EXISTS pg_temp.accurate_sales_invoice_item"))
+
     receipt_df.to_sql(
         "accurate_sales_receipt",
         conn,
