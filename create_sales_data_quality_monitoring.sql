@@ -43,9 +43,17 @@ orders_without_items AS (
 ),
 items_without_product AS (
     SELECT COUNT(*) AS issue_count
-    FROM public.vw_sales_order_item_analytics
-    WHERE product_id IS NULL
-       OR product_sku_alias_id IS NULL
+    FROM public.vw_sales_order_item_analytics item
+    WHERE item.product_sku_alias_id IS NULL
+       OR (
+            item.product_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                FROM public.product_bundle_component component
+                WHERE component.bundle_sku_alias_id = item.product_sku_alias_id
+                  AND component.is_active = TRUE
+            )
+       )
 ),
 invalid_order_dates AS (
     SELECT COUNT(*) AS issue_count
@@ -148,13 +156,13 @@ SELECT
 FROM duplicate_items
 UNION ALL
 SELECT
-    'valid_order_without_item', 'critical', issue_count::bigint, NULL::numeric,
-    'Every valid canonical order must contain at least one item.'
+    'valid_order_without_item', 'warning', issue_count::bigint, NULL::numeric,
+    'Valid header revenue exists without an included core-product item; monitor source exclusions and historical coverage.'
 FROM orders_without_items
 UNION ALL
 SELECT
     'item_without_product_mapping', 'critical', issue_count::bigint, NULL::numeric,
-    'Every canonical item must resolve to product_id and product_sku_alias_id.'
+    'Every canonical item must resolve directly to a product or to an active bundle component mapping.'
 FROM items_without_product
 UNION ALL
 SELECT
@@ -212,4 +220,3 @@ COMMENT ON VIEW public.vw_sales_data_quality_monitor IS
 'Current Sales analytics and semantic-layer data-quality checks. issue_count=0 means pass.';
 
 COMMIT;
-

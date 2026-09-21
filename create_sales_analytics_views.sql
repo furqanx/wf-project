@@ -10,13 +10,6 @@
 
 BEGIN;
 
-DROP VIEW IF EXISTS public.vw_sales_trend_monthly;
-DROP VIEW IF EXISTS public.vw_sales_trend_daily;
-DROP VIEW IF EXISTS public.vw_sales_customer_performance;
-DROP VIEW IF EXISTS public.vw_sales_channel_performance;
-DROP VIEW IF EXISTS public.vw_sales_product_daily;
-DROP VIEW IF EXISTS public.vw_sales_order_summary;
-
 CREATE OR REPLACE VIEW public.vw_sales_order_summary AS
 WITH item_summary AS (
     SELECT
@@ -59,7 +52,7 @@ SELECT
     COALESCE(fso.net_order_amount, 0) AS net_order_amount,
     COALESCE(fso.net_order_amount, 0) AS order_revenue,
     LOWER(COALESCE(fso.order_status, '')) IN (
-        'canceled', 'cancelled', 'dibatalkan'
+        'batal', 'canceled', 'cancelled', 'dibatalkan'
     ) AS is_canceled,
     COALESCE(items.item_rows, 0) AS item_rows,
     COALESCE(items.distinct_products, 0) AS distinct_products,
@@ -257,4 +250,3 @@ COMMENT ON VIEW public.vw_sales_trend_monthly IS
 'Monthly sales trend rolled up from the canonical daily sales trend.';
 
 COMMIT;
-
