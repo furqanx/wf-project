@@ -106,6 +106,44 @@ def run_pipeline_command(
     }
 
 
+@task(name="run_sales_analytics_data_quality")
+def run_data_quality_command(
+    *,
+    database: str,
+    target_schema: str,
+    fail_on: str,
+) -> dict[str, Any]:
+    """Run canonical and semantic Sales checks after a successful load."""
+    logger = get_run_logger()
+    command = [
+        sys.executable,
+        "scripts/audit/sales_analytics_data_quality.py",
+        "--database",
+        database,
+        "--target-schema",
+        target_schema,
+        "--fail-on",
+        fail_on,
+    ]
+    logger.info("Run Sales data-quality monitoring: %s", " ".join(command))
+    completed = subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    for line in completed.stdout.splitlines():
+        logger.info(line)
+    for line in completed.stderr.splitlines():
+        logger.warning(line)
+    if completed.returncode:
+        raise RuntimeError(
+            "Sales data-quality monitoring failed with exit code "
+            f"{completed.returncode}.\n{completed.stdout}\n{completed.stderr}"
+        )
+    return {"status": "passed", "fail_on": fail_on}
+
+
 @flow(name="Accurate_Offline_Sales_Incremental")
 def accurate_offline_sales_incremental_flow(
     *,
@@ -125,6 +163,8 @@ def accurate_offline_sales_incremental_flow(
     execute: bool = True,
     allow_unmapped: bool = False,
     skip_existing_output: bool = False,
+    run_data_quality: bool = True,
+    data_quality_fail_on: str = "critical",
 ) -> dict[str, Any]:
     """Fetch Accurate sales receipts, save staging raw files, and load offline sales facts."""
     window_start, window_end = resolve_window(
@@ -133,7 +173,12 @@ def accurate_offline_sales_incremental_flow(
         lookback_days=lookback_days,
         timezone=timezone,
     )
-    return run_pipeline_command(
+    if data_quality_fail_on not in {"never", "warning", "critical"}:
+        raise ValueError(
+            "data_quality_fail_on must be one of: never, warning, critical."
+        )
+
+    pipeline_result = run_pipeline_command(
         start_date=window_start,
         end_date=window_end,
         page_size=page_size,
@@ -149,6 +194,17 @@ def accurate_offline_sales_incremental_flow(
         allow_unmapped=allow_unmapped,
         skip_existing_output=skip_existing_output,
     )
+    quality_result: dict[str, Any] | None = None
+    if execute and run_data_quality:
+        quality_result = run_data_quality_command(
+            database=database,
+            target_schema=target_schema,
+            fail_on=data_quality_fail_on,
+        )
+    return {
+        "pipeline": pipeline_result,
+        "data_quality": quality_result,
+    }
 
 
 def resolve_window(
