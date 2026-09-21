@@ -35,10 +35,26 @@ return_header AS (
     SELECT
         resolution.canonical_sales_order_id AS sales_order_id,
         COUNT(*) AS recorded_return_count,
-        COUNT(*) FILTER (WHERE fsr.return_completed_at IS NOT NULL) AS completed_return_count,
+        COUNT(*) FILTER (
+            WHERE fsr.return_type <> 'cancellation'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE '%dibatalkan%'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE '%diproses%'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE 'in transit:%'
+              AND (
+                    fsr.return_completed_at IS NOT NULL
+                 OR LOWER(COALESCE(fsr.return_status, '')) = 'selesai'
+              )
+        ) AS completed_return_count,
         SUM(COALESCE(fsr.refund_amount, 0)) AS recorded_refund_amount,
         SUM(COALESCE(fsr.refund_amount, 0)) FILTER (
-            WHERE fsr.return_completed_at IS NOT NULL
+            WHERE fsr.return_type <> 'cancellation'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE '%dibatalkan%'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE '%diproses%'
+              AND LOWER(COALESCE(fsr.return_status, '')) NOT LIKE 'in transit:%'
+              AND (
+                    fsr.return_completed_at IS NOT NULL
+                 OR LOWER(COALESCE(fsr.return_status, '')) = 'selesai'
+              )
         ) AS completed_refund_amount,
         SUM(COALESCE(fsr.return_shipping_amount, 0)) AS return_shipping_amount,
         MIN(fsr.return_requested_at) AS first_return_requested_at,

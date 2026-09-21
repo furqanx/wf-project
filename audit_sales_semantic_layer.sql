@@ -99,3 +99,15 @@ SELECT
     ) AS valid_order_revenue_violations
 FROM public.vw_sales_semantic_order;
 
+SELECT
+    source_system,
+    COUNT(*) FILTER (WHERE completed_return_count > 0) AS completed_return_orders,
+    SUM(completed_return_count) AS completed_return_rows,
+    SUM(recognized_refund_amount) AS recognized_refund_amount,
+    COUNT(*) FILTER (
+        WHERE completed_return_count > 0
+          AND recognized_refund_amount = 0
+    ) AS completed_return_orders_without_refund_value
+FROM public.vw_sales_semantic_order
+GROUP BY source_system
+ORDER BY source_system;
