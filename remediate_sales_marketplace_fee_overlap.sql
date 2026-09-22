@@ -121,8 +121,6 @@ SELECT
     economic_role,
     include_in_marketplace_cost,
     marketplace_cost_behavior,
-    is_marketplace_cost_selected,
-    marketplace_cost_exclusion_reason,
     raw_fee_name,
     raw_fee_amount,
     signed_fee_amount,
@@ -138,11 +136,12 @@ SELECT
     source_row_number,
     raw_record_id,
     created_at,
-    updated_at
+    updated_at,
+    is_marketplace_cost_selected,
+    marketplace_cost_exclusion_reason
 FROM selected;
 
 COMMENT ON VIEW public.vw_sales_marketplace_fee_semantic IS
 'Governed fee semantics with source-overlap resolution. Marketplace cost uses one preferred source export; excluded raw rows remain visible with a reason.';
 
 COMMIT;
-
