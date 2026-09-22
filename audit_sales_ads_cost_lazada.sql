@@ -8,16 +8,37 @@ SET statement_timeout = '30min';
 BEGIN;
 
 CREATE TEMP TABLE tmp_lazada_ads_governed ON COMMIT DROP AS
+WITH normalized AS (
+    SELECT
+        balance.*,
+        LOWER(REGEXP_REPLACE(
+            TRIM(COALESCE(balance.transaction_type, '')),
+            '[^a-zA-Z0-9]+',
+            '_',
+            'g'
+        )) AS normalized_transaction_type,
+        LOWER(REGEXP_REPLACE(
+            TRIM(COALESCE(balance.transaction_sub_type, '')),
+            '[^a-zA-Z0-9]+',
+            '_',
+            'g'
+        )) AS normalized_transaction_sub_type
+    FROM public.fact_balance_transaction balance
+    WHERE balance.is_active = TRUE
+      AND balance.source_system = 'lazada'
+)
 SELECT
     balance.*,
     store.store_code,
     store.store_name,
     CASE
-        WHEN balance.transaction_type = 'payment'
-         AND balance.transaction_sub_type = 'sponsored_solutions_top_up'
+        WHEN balance.normalized_transaction_type = 'payment'
+         AND balance.normalized_transaction_sub_type =
+             'sponsored_solutions_top_up'
             THEN 'ads_wallet_funding'
-        WHEN balance.transaction_type = 'payment'
-         AND balance.transaction_sub_type = 'sponsored_solution_spend'
+        WHEN balance.normalized_transaction_type = 'payment'
+         AND balance.normalized_transaction_sub_type =
+             'sponsored_solution_spend'
             THEN 'ads_cost_candidate'
         WHEN CONCAT_WS(
                  ' ',
@@ -29,11 +50,9 @@ SELECT
             THEN 'ads_keyword_other'
         ELSE 'not_ads'
     END AS governed_ads_category
-FROM public.fact_balance_transaction balance
+FROM normalized balance
 LEFT JOIN public.dim_store store
-  ON store.store_id = balance.store_id
-WHERE balance.is_active = TRUE
-  AND balance.source_system = 'lazada';
+  ON store.store_id = balance.store_id;
 
 CREATE INDEX ON tmp_lazada_ads_governed (
     governed_ads_category,
