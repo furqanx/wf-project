@@ -7,10 +7,28 @@ SET statement_timeout = '30min';
 BEGIN;
 
 CREATE TEMP TABLE tmp_fee_semantic ON COMMIT DROP AS
-SELECT * FROM public.vw_sales_marketplace_fee_semantic;
-
-CREATE INDEX ON tmp_fee_semantic (source_system, external_order_id, fee_type_id);
-ANALYZE tmp_fee_semantic;
+SELECT
+    source_system,
+    store_id,
+    external_order_id,
+    fee_type_id,
+    fee_code,
+    economic_role,
+    include_in_marketplace_cost,
+    marketplace_cost_behavior,
+    fee_grain_type,
+    source_file,
+    source_sheet,
+    is_marketplace_cost_selected,
+    marketplace_cost_exclusion_reason,
+    marketplace_cost_amount
+FROM public.vw_sales_marketplace_fee_semantic
+WHERE include_in_marketplace_cost
+   OR economic_role = 'unclassified'
+   OR (source_system = 'shopee' AND fee_code IN (
+       'biaya_proses_pesanan',
+       'biaya_proses_pesanan_per_produk_prorata'
+   ));
 
 -- A. Selected official cost and excluded records by reason.
 SELECT
@@ -85,4 +103,3 @@ SELECT
 FROM tmp_fee_semantic;
 
 ROLLBACK;
-
