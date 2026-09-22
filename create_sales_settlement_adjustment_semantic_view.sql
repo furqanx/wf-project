@@ -3,9 +3,7 @@
 
 BEGIN;
 
-DROP VIEW IF EXISTS public.vw_sales_settlement_adjustment_semantic;
-
-CREATE VIEW public.vw_sales_settlement_adjustment_semantic AS
+CREATE OR REPLACE VIEW public.vw_sales_settlement_adjustment_semantic AS
 WITH governed AS (
     SELECT
         adjustment.*,
@@ -15,6 +13,10 @@ WITH governed AS (
             settlement.sales_order_id
         ) AS resolved_sales_order_id,
         CASE
+            WHEN adjustment.source_system = 'tiktok_tokopedia'
+             AND LOWER(COALESCE(adjustment.raw_transaction_type, '')) LIKE
+                 '%violation fee%'
+                THEN 'penalty_cost'
             WHEN adjustment.source_system = 'tiktok_tokopedia'
              AND (
                  LOWER(COALESCE(adjustment.raw_transaction_type, '')) LIKE
