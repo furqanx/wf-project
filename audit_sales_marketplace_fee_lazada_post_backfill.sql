@@ -84,7 +84,8 @@ FROM expected
 LEFT JOIN loaded USING (fee_type_id)
 ORDER BY load_status DESC, expected.fee_code;
 
--- D. Selected component uniqueness at the Lazada item/order business grain.
+-- D. Selected order-level component uniqueness. Item-level VAT can legitimately
+-- repeat because Lazada emits one VAT value for each underlying fee component.
 WITH selected_grain AS (
     SELECT
         store_id,
@@ -96,6 +97,7 @@ WITH selected_grain AS (
         COUNT(DISTINCT source_file) AS selected_source_files
     FROM tmp_lazada_fee_semantic
     WHERE is_marketplace_cost_selected
+      AND fee_grain_type = 'order_level'
     GROUP BY 1, 2, 3, 4, 5
 )
 SELECT
@@ -123,4 +125,3 @@ SELECT
 FROM tmp_lazada_fee_semantic;
 
 ROLLBACK;
-
