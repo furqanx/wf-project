@@ -246,7 +246,10 @@ def adjustment_external_id(
 
 def related_external_order_id(source_system: str, row: pd.Series) -> str | None:
     if source_system == "tiktok_tokopedia":
-        return clean_text(row.get("related_order_id"))
+        related_order_id = clean_text(row.get("related_order_id"))
+        if related_order_id in {"/", "-", "N/A", "n/a"}:
+            return None
+        return related_order_id
     if source_system == "shopee":
         return clean_text(row.get("no_pesanan_terhubung"))
     if source_system == "lazada":
