@@ -160,6 +160,26 @@ def clean_text(value: Any) -> str | None:
     return text_value
 
 
+def build_row_fee_alias_lookup(aliases: list[FeeAlias]) -> dict[str, FeeAlias]:
+    lookup: dict[str, FeeAlias] = {}
+    for alias in aliases:
+        if alias.fee_source_kind != "row_fee_name":
+            continue
+
+        key = normalize_name(alias.normalized_fee_name) or normalize_name(alias.raw_fee_name)
+        if not key:
+            continue
+
+        existing = lookup.get(key)
+        if existing and existing.fee_type_id != alias.fee_type_id:
+            raise ValueError(
+                "Ambiguous normalized row-fee alias "
+                f"{key!r}: fee_type_id={existing.fee_type_id} and {alias.fee_type_id}."
+            )
+        lookup[key] = alias
+    return lookup
+
+
 def parse_decimal(value: Any) -> Decimal | None:
     text_value = clean_text(value)
     if text_value is None:
@@ -401,11 +421,7 @@ def extract_frame_fee_rows(
     if not aliases_by_table:
         return rows, stats
 
-    row_fee_aliases = {
-        alias.normalized_fee_name: alias
-        for alias in aliases_by_table
-        if alias.fee_source_kind == "row_fee_name"
-    }
+    row_fee_aliases = build_row_fee_alias_lookup(aliases_by_table)
     column_fee_aliases = [
         alias for alias in aliases_by_table if alias.fee_source_kind == "column_fee"
     ]
