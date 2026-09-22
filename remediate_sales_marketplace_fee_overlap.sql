@@ -81,28 +81,63 @@ source_priority AS (
         ) AS source_file_priority
     FROM base
 ),
+component_priority AS (
+    SELECT
+        source_priority.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                source_system,
+                store_id,
+                external_order_id,
+                sales_settlement_id,
+                fee_type_id,
+                fee_grain_type
+            ORDER BY
+                source_file_priority,
+                CASE
+                    WHEN source_system = 'shopee'
+                     AND fee_code = 'biaya_proses_pesanan'
+                     AND source_sheet = 'Income'
+                     AND fee_grain_type = 'order_level'
+                        THEN 0
+                    WHEN source_system = 'shopee'
+                     AND fee_code = 'biaya_proses_pesanan'
+                        THEN 1
+                    ELSE 0
+                END,
+                ABS(signed_fee_amount) DESC,
+                source_row_number NULLS LAST,
+                sales_settlement_fee_detail_id
+        ) AS order_component_priority
+    FROM source_priority
+),
 selected AS (
     SELECT
         source_priority.*,
         CASE
             WHEN NOT include_in_marketplace_cost THEN false
+            WHEN source_file_priority <> 1 THEN false
             WHEN source_system = 'shopee'
              AND fee_code = 'biaya_proses_pesanan'
              AND (source_sheet <> 'Income' OR fee_grain_type <> 'order_level')
                 THEN false
-            WHEN source_file_priority <> 1 THEN false
+            WHEN fee_grain_type = 'order_level'
+             AND order_component_priority <> 1 THEN false
             ELSE true
         END AS is_marketplace_cost_selected,
         CASE
             WHEN NOT include_in_marketplace_cost THEN economic_role
+            WHEN source_file_priority <> 1 THEN 'overlapping_source_file'
             WHEN source_system = 'shopee'
              AND fee_code = 'biaya_proses_pesanan'
              AND (source_sheet <> 'Income' OR fee_grain_type <> 'order_level')
                 THEN 'duplicate_item_representation'
-            WHEN source_file_priority <> 1 THEN 'overlapping_source_file'
+            WHEN fee_grain_type = 'order_level'
+             AND order_component_priority <> 1
+                THEN 'duplicate_or_component_breakdown'
             ELSE NULL
         END AS marketplace_cost_exclusion_reason
-    FROM source_priority
+    FROM component_priority
 )
 SELECT
     sales_settlement_fee_detail_id,
@@ -142,6 +177,6 @@ SELECT
 FROM selected;
 
 COMMENT ON VIEW public.vw_sales_marketplace_fee_semantic IS
-'Governed fee semantics with source-overlap resolution. Marketplace cost uses one preferred source export; excluded raw rows remain visible with a reason.';
+'Governed fee semantics with source-overlap and repeated-component resolution. Marketplace cost selects one authoritative total per order, settlement, and fee type; excluded raw rows remain visible with a reason.';
 
 COMMIT;
