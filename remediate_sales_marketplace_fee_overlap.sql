@@ -83,7 +83,7 @@ source_priority AS (
 ),
 component_priority AS (
     SELECT
-        source_priority.*,
+        prioritized_source.*,
         ROW_NUMBER() OVER (
             PARTITION BY
                 source_system,
@@ -109,11 +109,11 @@ component_priority AS (
                 source_row_number NULLS LAST,
                 sales_settlement_fee_detail_id
         ) AS order_component_priority
-    FROM source_priority
+    FROM source_priority prioritized_source
 ),
 selected AS (
     SELECT
-        source_priority.*,
+        prioritized_component.*,
         CASE
             WHEN NOT include_in_marketplace_cost THEN false
             WHEN source_file_priority <> 1 THEN false
@@ -137,7 +137,7 @@ selected AS (
                 THEN 'duplicate_or_component_breakdown'
             ELSE NULL
         END AS marketplace_cost_exclusion_reason
-    FROM component_priority
+    FROM component_priority prioritized_component
 )
 SELECT
     sales_settlement_fee_detail_id,
