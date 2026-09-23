@@ -35,7 +35,7 @@ WITH canonical_items AS (
         COUNT(*) AS item_rows,
         SUM(quantity) AS units_sold,
         SUM(net_item_amount) AS item_net_amount
-    FROM public.vw_sales_order_item_analytics
+    FROM public.vw_sales_order_product_component_analytics
 ),
 product_daily AS (
     SELECT
@@ -56,6 +56,38 @@ SELECT
     product_daily.item_net_amount - canonical_items.item_net_amount AS item_amount_delta
 FROM canonical_items
 CROSS JOIN product_daily;
+
+-- Bundle expansion intentionally increases product-component rows and units.
+-- Bundle monetary values remain unavailable at product grain until an
+-- allocation policy is governed.
+WITH raw_items AS (
+    SELECT
+        COUNT(*) AS item_rows,
+        SUM(quantity) AS units_sold,
+        SUM(net_item_amount) AS item_net_amount
+    FROM public.vw_sales_order_item_analytics
+),
+component_items AS (
+    SELECT
+        COUNT(*) AS component_rows,
+        SUM(quantity) AS component_units,
+        SUM(net_item_amount) AS available_component_item_net_amount,
+        COUNT(DISTINCT sales_order_item_id) FILTER (
+            WHERE is_bundle_component
+        ) AS bundle_source_items
+    FROM public.vw_sales_order_product_component_analytics
+)
+SELECT
+    component_items.bundle_source_items,
+    component_items.component_rows - raw_items.item_rows
+        AS bundle_component_row_expansion,
+    component_items.component_units - raw_items.units_sold
+        AS bundle_component_unit_expansion,
+    raw_items.item_net_amount
+        - component_items.available_component_item_net_amount
+        AS bundle_item_amount_awaiting_allocation
+FROM raw_items
+CROSS JOIN component_items;
 
 WITH summary AS (
     SELECT COUNT(*) AS order_rows, SUM(order_revenue) AS revenue
@@ -112,4 +144,3 @@ SELECT
 FROM public.vw_sales_order_summary
 GROUP BY analytics_channel_type, source_system
 ORDER BY analytics_channel_type, source_system;
-

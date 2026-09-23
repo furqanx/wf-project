@@ -6,13 +6,30 @@ SET statement_timeout = '30min';
 
 BEGIN;
 
+CREATE TEMP TABLE tmp_valid_online_order_ids ON COMMIT DROP AS
+SELECT sales_order_id
+FROM public.vw_sales_semantic_order
+WHERE analytics_channel_type = 'online'
+  AND valid_order_count = 1;
+
+CREATE UNIQUE INDEX ON tmp_valid_online_order_ids (sales_order_id);
+ANALYZE tmp_valid_online_order_ids;
+
+CREATE TEMP TABLE tmp_valid_source_items ON COMMIT DROP AS
+SELECT items.*
+FROM public.vw_sales_order_item_analytics items
+JOIN tmp_valid_online_order_ids orders
+  ON orders.sales_order_id = items.sales_order_id;
+
+CREATE INDEX ON tmp_valid_source_items (sales_order_item_id);
+CREATE INDEX ON tmp_valid_source_items (product_sku_alias_id);
+ANALYZE tmp_valid_source_items;
+
 CREATE TEMP TABLE tmp_valid_product_items ON COMMIT DROP AS
 SELECT components.*
 FROM public.vw_sales_order_product_component_analytics components
-JOIN public.vw_sales_semantic_order orders
-  ON orders.sales_order_id = components.sales_order_id
- AND orders.analytics_channel_type = 'online'
- AND orders.valid_order_count = 1;
+JOIN tmp_valid_online_order_ids orders
+  ON orders.sales_order_id = components.sales_order_id;
 
 ANALYZE tmp_valid_product_items;
 
@@ -32,11 +49,7 @@ ORDER BY source_system, product_resolution_method;
 -- Canonical product-less source items must now be valid configured bundles.
 WITH productless AS (
     SELECT items.*
-    FROM public.vw_sales_order_item_analytics items
-    JOIN public.vw_sales_semantic_order orders
-      ON orders.sales_order_id = items.sales_order_id
-     AND orders.analytics_channel_type = 'online'
-     AND orders.valid_order_count = 1
+    FROM tmp_valid_source_items items
     WHERE items.product_id IS NULL
 ),
 bundle_shape AS (
@@ -87,11 +100,7 @@ expected AS (
                 WHERE components.is_active
             )
         END AS expected_component_rows
-    FROM public.vw_sales_order_item_analytics items
-    JOIN public.vw_sales_semantic_order orders
-      ON orders.sales_order_id = items.sales_order_id
-     AND orders.analytics_channel_type = 'online'
-     AND orders.valid_order_count = 1
+    FROM tmp_valid_source_items items
     LEFT JOIN public.product_bundle_component components
       ON components.bundle_sku_alias_id = items.product_sku_alias_id
     GROUP BY items.sales_order_item_id, items.product_id
