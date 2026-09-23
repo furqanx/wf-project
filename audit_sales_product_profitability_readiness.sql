@@ -35,11 +35,13 @@ SELECT
     items.source_sku_code,
     items.product_id,
     items.quantity,
-    items.net_item_amount
-FROM public.fact_sales_order_item items
+    items.net_item_amount,
+    items.is_bundle_component,
+    items.product_resolution_method,
+    items.item_amount_available_at_product_grain
+FROM public.vw_sales_order_product_component_analytics items
 JOIN tmp_product_profitability_orders orders
-  ON orders.sales_order_id = items.sales_order_id
-WHERE items.is_active;
+  ON orders.sales_order_id = items.sales_order_id;
 
 CREATE INDEX ON tmp_product_profitability_items (sales_order_id);
 CREATE INDEX ON tmp_product_profitability_items (sales_order_id, source_line_id);
@@ -74,6 +76,9 @@ SELECT
     COUNT(DISTINCT sales_order_id) AS valid_orders_with_items,
     COUNT(*) AS item_rows,
     COUNT(*) FILTER (WHERE product_id IS NULL) AS items_without_product,
+    COUNT(DISTINCT sales_order_item_id) FILTER (
+        WHERE is_bundle_component
+    ) AS bundle_source_items,
     COUNT(DISTINCT product_id) AS products,
     SUM(quantity) AS units_sold,
     SUM(net_item_amount) AS diagnostic_item_net_amount
