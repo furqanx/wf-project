@@ -12,11 +12,6 @@
 
 BEGIN;
 
-DROP VIEW IF EXISTS public.vw_sales_semantic_product_daily;
-DROP VIEW IF EXISTS public.vw_sales_semantic_monthly;
-DROP VIEW IF EXISTS public.vw_sales_semantic_daily;
-DROP VIEW IF EXISTS public.vw_sales_semantic_order;
-
 CREATE OR REPLACE VIEW public.vw_sales_semantic_order AS
 WITH order_resolution AS (
     SELECT
@@ -81,6 +76,15 @@ return_items AS (
       AND fsr.sales_order_id IS NOT NULL
     GROUP BY resolution.canonical_sales_order_id
 ),
+recognized_refund AS (
+    SELECT
+        sales_order_id,
+        SUM(recognized_refund_amount) FILTER (
+            WHERE refund_value_status = 'recognized'
+        ) AS recognized_refund_amount
+    FROM public.vw_sales_refund_semantic
+    GROUP BY sales_order_id
+),
 fulfillment AS (
     SELECT
         resolution.canonical_sales_order_id AS sales_order_id,
@@ -125,14 +129,15 @@ SELECT
     COALESCE(rh.recorded_refund_amount, 0) AS recorded_refund_amount,
     CASE
         WHEN orders.is_canceled THEN 0::numeric
-        ELSE COALESCE(rh.completed_refund_amount, 0)
+        ELSE COALESCE(rr.recognized_refund_amount, 0)
     END AS recognized_refund_amount,
     COALESCE(rh.return_shipping_amount, 0) AS return_shipping_amount,
     COALESCE(ri.returned_units, 0) AS returned_units,
     COALESCE(ri.return_item_refund_amount, 0) AS return_item_refund_amount,
     CASE
         WHEN orders.is_canceled THEN 0::numeric
-        ELSE orders.order_revenue - COALESCE(rh.completed_refund_amount, 0)
+        ELSE orders.order_revenue
+            - COALESCE(rr.recognized_refund_amount, 0)
     END AS net_revenue_after_returns,
     rh.first_return_requested_at,
     rh.last_return_completed_at,
@@ -170,6 +175,8 @@ LEFT JOIN return_header rh
     ON rh.sales_order_id = orders.sales_order_id
 LEFT JOIN return_items ri
     ON ri.sales_order_id = orders.sales_order_id
+LEFT JOIN recognized_refund rr
+    ON rr.sales_order_id = orders.sales_order_id
 LEFT JOIN fulfillment f
     ON f.sales_order_id = orders.sales_order_id;
 
