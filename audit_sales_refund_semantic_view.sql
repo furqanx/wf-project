@@ -4,6 +4,21 @@
 SET lock_timeout = '30s';
 SET statement_timeout = '30min';
 
+BEGIN;
+
+-- Materialize the governed result once so the audit does not repeatedly
+-- expand the comparatively expensive canonical sales and return views.
+CREATE TEMP TABLE tmp_sales_refund_semantic_audit ON COMMIT DROP AS
+SELECT *
+FROM public.vw_sales_refund_semantic;
+
+CREATE INDEX ON tmp_sales_refund_semantic_audit (
+    source_system,
+    refund_value_status
+);
+CREATE INDEX ON tmp_sales_refund_semantic_audit (external_order_id);
+ANALYZE tmp_sales_refund_semantic_audit;
+
 SELECT
     source_system,
     refund_value_source,
@@ -16,7 +31,7 @@ SELECT
     SUM(recognized_refund_amount) AS recognized_refund_amount,
     MIN(first_return_requested_at) AS min_return_requested_at,
     MAX(last_return_completed_at) AS max_return_completed_at
-FROM public.vw_sales_refund_semantic
+FROM tmp_sales_refund_semantic_audit
 GROUP BY source_system, refund_value_source, refund_value_status
 ORDER BY source_system, refund_value_status;
 
@@ -26,7 +41,7 @@ WITH expected AS (
         'shopee'::text AS source_system,
         COUNT(*) AS expected_orders,
         SUM(settlement_refund.refund_amount) AS expected_amount
-    FROM public.vw_sales_refund_semantic semantic
+    FROM tmp_sales_refund_semantic_audit semantic
     JOIN (
         SELECT
             external_order_id,
@@ -47,7 +62,7 @@ WITH expected AS (
         'tiktok_tokopedia'::text AS source_system,
         COUNT(*) AS expected_orders,
         SUM(recognized_refund_amount) AS expected_amount
-    FROM public.vw_sales_refund_semantic
+    FROM tmp_sales_refund_semantic_audit
     WHERE source_system = 'tiktok_tokopedia'
       AND refund_value_status = 'recognized'
 ),
@@ -58,7 +73,7 @@ actual AS (
             WHERE refund_value_status = 'recognized'
         ) AS actual_orders,
         SUM(recognized_refund_amount) AS actual_amount
-    FROM public.vw_sales_refund_semantic
+    FROM tmp_sales_refund_semantic_audit
     GROUP BY source_system
 )
 SELECT
@@ -89,7 +104,7 @@ FROM (
             WHERE refund_value_status = 'recognized'
         ) AS refund_orders,
         COALESCE(SUM(recognized_refund_amount), 0) AS refund_amount
-    FROM public.vw_sales_refund_semantic
+    FROM tmp_sales_refund_semantic_audit
     GROUP BY source_system
 ) refund
 JOIN (
@@ -119,4 +134,6 @@ SELECT
     ) AS lazada_recognized_without_source_rows,
     COUNT(*) - COUNT(DISTINCT source_system || ':' || external_order_id)
         AS duplicate_source_order_rows
-FROM public.vw_sales_refund_semantic;
+FROM tmp_sales_refund_semantic_audit;
+
+ROLLBACK;
