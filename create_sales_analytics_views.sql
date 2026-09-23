@@ -101,7 +101,7 @@ SELECT
     SUM(fsoi.gross_item_amount) AS item_gross_amount,
     SUM(fsoi.discount_amount) AS item_discount_amount,
     SUM(fsoi.net_item_amount) AS item_net_amount
-FROM public.vw_sales_order_item_analytics fsoi
+FROM public.vw_sales_order_product_component_analytics fsoi
 LEFT JOIN public.dim_product dp
     ON dp.product_id = fsoi.product_id
 LEFT JOIN public.dim_marketplace dm

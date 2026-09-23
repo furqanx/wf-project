@@ -300,7 +300,7 @@ SELECT
     SUM(items.gross_item_amount) AS item_gross_amount,
     SUM(items.discount_amount) AS item_discount_amount,
     SUM(items.net_item_amount) AS item_net_amount
-FROM public.vw_sales_order_item_analytics items
+FROM public.vw_sales_order_product_component_analytics items
 JOIN public.vw_sales_semantic_order orders
     ON orders.sales_order_id = items.sales_order_id
    AND orders.valid_order_count = 1
