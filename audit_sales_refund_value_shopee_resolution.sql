@@ -9,7 +9,8 @@ BEGIN;
 
 CREATE TEMP TABLE tmp_shopee_settlement_refund ON COMMIT DROP AS
 SELECT
-    settlement.store_id,
+    MIN(settlement.store_id) AS settlement_store_id,
+    COUNT(DISTINCT settlement.store_id) AS settlement_stores,
     settlement.external_order_id,
     COUNT(*) AS settlement_rows,
     COUNT(DISTINCT settlement.sales_settlement_id) AS settlement_ids,
@@ -24,12 +25,13 @@ FROM public.fact_sales_settlement settlement
 WHERE settlement.is_active = TRUE
   AND settlement.source_system = 'shopee'
   AND settlement.refund_amount <> 0
-GROUP BY settlement.store_id, settlement.external_order_id;
+GROUP BY settlement.external_order_id;
 
 CREATE TEMP TABLE tmp_shopee_return_resolution ON COMMIT DROP AS
 WITH return_header AS (
     SELECT
-        returns.store_id,
+        MIN(returns.store_id) AS return_store_id,
+        COUNT(DISTINCT returns.store_id) AS return_stores,
         returns.external_order_id,
         COUNT(*) AS return_rows,
         COUNT(*) FILTER (
@@ -59,11 +61,10 @@ WITH return_header AS (
     FROM public.fact_sales_return returns
     WHERE returns.is_active = TRUE
       AND returns.source_system = 'shopee'
-    GROUP BY returns.store_id, returns.external_order_id
+    GROUP BY returns.external_order_id
 ),
 return_item AS (
     SELECT
-        returns.store_id,
         returns.external_order_id,
         SUM(COALESCE(items.return_qty, 0)) AS return_qty
     FROM public.fact_sales_return returns
@@ -72,18 +73,17 @@ return_item AS (
      AND items.is_active = TRUE
     WHERE returns.is_active = TRUE
       AND returns.source_system = 'shopee'
-    GROUP BY returns.store_id, returns.external_order_id
+    GROUP BY returns.external_order_id
 )
 SELECT
     header.*,
     COALESCE(item.return_qty, 0) AS return_qty
 FROM return_header header
 LEFT JOIN return_item item
-  ON item.store_id IS NOT DISTINCT FROM header.store_id
- AND item.external_order_id = header.external_order_id;
+  ON item.external_order_id = header.external_order_id;
 
-CREATE INDEX ON tmp_shopee_settlement_refund (store_id, external_order_id);
-CREATE INDEX ON tmp_shopee_return_resolution (store_id, external_order_id);
+CREATE INDEX ON tmp_shopee_settlement_refund (external_order_id);
+CREATE INDEX ON tmp_shopee_return_resolution (external_order_id);
 ANALYZE tmp_shopee_settlement_refund;
 ANALYZE tmp_shopee_return_resolution;
 
@@ -97,6 +97,8 @@ SELECT
         AS orders_without_sales_order_link,
     COUNT(*) FILTER (WHERE linked_sales_orders > 1)
         AS orders_with_multiple_sales_order_links,
+    COUNT(*) FILTER (WHERE settlement_stores > 1)
+        AS orders_with_multiple_settlement_stores,
     SUM(signed_refund_amount) AS signed_refund_amount,
     SUM(positive_refund_amount) AS positive_refund_amount,
     MIN(first_settlement_at) AS min_settlement_at,
@@ -119,8 +121,7 @@ SELECT
     SUM(COALESCE(returns.return_qty, 0)) AS return_qty
 FROM tmp_shopee_settlement_refund settlement
 LEFT JOIN tmp_shopee_return_resolution returns
-  ON returns.store_id IS NOT DISTINCT FROM settlement.store_id
- AND returns.external_order_id = settlement.external_order_id
+  ON returns.external_order_id = settlement.external_order_id
 GROUP BY resolution_status
 ORDER BY resolution_status;
 
@@ -145,14 +146,13 @@ SELECT
     ) AS quantity_without_refund_value
 FROM tmp_shopee_return_resolution returns
 LEFT JOIN tmp_shopee_settlement_refund settlement
-  ON settlement.store_id IS NOT DISTINCT FROM returns.store_id
- AND settlement.external_order_id = returns.external_order_id;
+  ON settlement.external_order_id = returns.external_order_id;
 
 -- D. Monthly/store coverage for completed returns.
 SELECT
     DATE_TRUNC('month', returns.last_return_completed_at)::date
         AS completion_month,
-    returns.store_id,
+    returns.return_store_id AS store_id,
     COUNT(*) AS completed_return_orders,
     COUNT(settlement.external_order_id) AS orders_with_settlement_value,
     COUNT(*) - COUNT(settlement.external_order_id)
@@ -160,8 +160,7 @@ SELECT
     SUM(settlement.positive_refund_amount) AS refund_amount
 FROM tmp_shopee_return_resolution returns
 LEFT JOIN tmp_shopee_settlement_refund settlement
-  ON settlement.store_id IS NOT DISTINCT FROM returns.store_id
- AND settlement.external_order_id = returns.external_order_id
+  ON settlement.external_order_id = returns.external_order_id
 WHERE returns.completed_return_rows > 0
 GROUP BY 1, 2
 ORDER BY 1, 2;
@@ -169,7 +168,15 @@ ORDER BY 1, 2;
 -- E. Detail requiring review: monetary refunds without a completed return and
 -- completed returns without a monetary settlement value.
 SELECT
-    COALESCE(settlement.store_id, returns.store_id) AS store_id,
+    returns.return_store_id,
+    settlement.settlement_store_id,
+    CASE
+        WHEN returns.return_store_id IS NOT NULL
+         AND settlement.settlement_store_id IS NOT NULL
+         AND returns.return_store_id <> settlement.settlement_store_id
+            THEN TRUE
+        ELSE FALSE
+    END AS store_mismatch,
     COALESCE(settlement.external_order_id, returns.external_order_id)
         AS external_order_id,
     CASE
@@ -189,8 +196,7 @@ SELECT
     settlement.last_settlement_at
 FROM tmp_shopee_return_resolution returns
 FULL JOIN tmp_shopee_settlement_refund settlement
-  ON settlement.store_id IS NOT DISTINCT FROM returns.store_id
- AND settlement.external_order_id = returns.external_order_id
+  ON settlement.external_order_id = returns.external_order_id
 WHERE (
         settlement.external_order_id IS NOT NULL
         AND COALESCE(returns.completed_return_rows, 0) = 0
@@ -199,16 +205,29 @@ WHERE (
         returns.completed_return_rows > 0
         AND settlement.external_order_id IS NULL
       )
-ORDER BY review_reason, store_id, external_order_id
+ORDER BY review_reason, external_order_id
 LIMIT 250;
 
 -- F. Duplicate identities should be impossible at the temporary order grain.
 SELECT
-    store_id,
     external_order_id,
     COUNT(*) AS rows
 FROM tmp_shopee_settlement_refund
-GROUP BY store_id, external_order_id
+GROUP BY external_order_id
 HAVING COUNT(*) > 1;
+
+-- G. Store mismatches are retained as audit metadata and must not prevent a
+-- globally unique Shopee order ID from resolving.
+SELECT
+    COUNT(*) AS matched_refund_orders,
+    COUNT(*) FILTER (
+        WHERE returns.return_store_id <> settlement.settlement_store_id
+    ) AS store_mismatch_orders,
+    SUM(settlement.positive_refund_amount) FILTER (
+        WHERE returns.return_store_id <> settlement.settlement_store_id
+    ) AS store_mismatch_refund_amount
+FROM tmp_shopee_return_resolution returns
+JOIN tmp_shopee_settlement_refund settlement
+  ON settlement.external_order_id = returns.external_order_id;
 
 ROLLBACK;
